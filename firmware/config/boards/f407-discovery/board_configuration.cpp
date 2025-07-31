@@ -7,26 +7,29 @@
 
 static void setDefaultFrankensoStepperIdleParameters() {
 	engineConfiguration->idle.stepperDirectionPin = Gpio::E10;
-	engineConfiguration->idle.stepperStepPin = Gpio::E12;
-	engineConfiguration->stepperEnablePin = Gpio::E14;
+	engineConfiguration->idle.stepperStepPin = Gpio::E9;
+	engineConfiguration->stepperEnablePin = Gpio::E8;
 	engineConfiguration->idleStepperReactionTime = 10;
 	engineConfiguration->idleStepperTotalSteps = 150;
 }
 
 static void setCanFrankensoDefaults() {
-	engineConfiguration->canTxPin = Gpio::B6;
-	engineConfiguration->canRxPin = Gpio::B12;
+	engineConfiguration->canTxPin = Gpio::B9;
+	engineConfiguration->canRxPin = Gpio::B8;
+	
+	engineConfiguration->cylindersCount = 4;
+	engineConfiguration->firingOrder = FO_1_3_4_2;
 }
 
 Gpio getWarningLedPin() {
     // open question if we need those LEDs at all? shall those be configurable?
-	return Gpio::Unassigned;
+	return Gpio::C8;
 }
 
 Gpio getCommsLedPin() {
 #ifdef HW_NOT_COMMUNITY_FRANKENSO
   // not f407-discovery but f407-discovery while reusing board file
-  return Gpio::D15;
+  return Gpio::A1;
 #else
   // f407-discovery community board not frankenso
 	return config->communityCommsLedPin;
@@ -40,7 +43,7 @@ Gpio getRunningLedPin() {
 
 #if EFI_ONBOARD_MEMS
 static void configureAccelerometerPins() {
-//	engineConfiguration->accelerometerCsPin = Gpio::E3; // we have a conflict with VVT output on Miata
+//	engineConfiguration->accelerometerCsPin = Gpio::D11; // we have a conflict with VVT output on Miata
 // 	engineConfiguration->is_enabled_spi_1 = true; // we have a conflict with PA5 input pin
 
 	// stm32f4discovery defaults
@@ -59,7 +62,7 @@ void setBoardDefaultConfiguration() {
 
 #ifndef HW_NOT_COMMUNITY_FRANKENSO
   // f407-discovery community board not frankenso
-	config->communityCommsLedPin = Gpio::D15;  // blue LED on discovery
+	config->communityCommsLedPin = Gpio::A1;  // blue LED on discovery
 #endif
 
 	// set optional subsystem configs
@@ -71,36 +74,36 @@ void setBoardDefaultConfiguration() {
 
 
 	engineConfiguration->map.sensor.hwChannel = EFI_ADC_4;
-	engineConfiguration->clt.adcChannel = EFI_ADC_6;
-	engineConfiguration->iat.adcChannel = EFI_ADC_7;
+	engineConfiguration->clt.adcChannel = EFI_ADC_3;
+	engineConfiguration->iat.adcChannel = EFI_ADC_4;
 	engineConfiguration->afr.hwChannel = EFI_ADC_14;
 
-	engineConfiguration->accelerometerSpiDevice = SPI_DEVICE_1;
+	engineConfiguration->accelerometerSpiDevice = SPI_DEVICE_3;
 
-	engineConfiguration->triggerSimulatorPins[0] = Gpio::D1;
-	engineConfiguration->triggerSimulatorPins[1] = Gpio::D2;
+	engineConfiguration->triggerSimulatorPins[0] = Gpio::E14;
+	engineConfiguration->triggerSimulatorPins[1] = Gpio::E15;
 
-	engineConfiguration->triggerInputPins[0] = Gpio::C6;
+	engineConfiguration->triggerInputPins[0] = Gpio::C4;
 //	engineConfiguration->triggerInputPins[1] = Gpio::A5;
 
 	// set this to SPI_DEVICE_3 to enable stimulation
 	//engineConfiguration->digitalPotentiometerSpiDevice = SPI_DEVICE_3;
-	engineConfiguration->digitalPotentiometerChipSelect[0] = Gpio::D7;
+	engineConfiguration->digitalPotentiometerChipSelect[0] = Gpio::B0;
 	engineConfiguration->digitalPotentiometerChipSelect[1] = Gpio::Unassigned;
-	engineConfiguration->digitalPotentiometerChipSelect[2] = Gpio::D5;
+	engineConfiguration->digitalPotentiometerChipSelect[2] = Gpio::B1;
 	engineConfiguration->digitalPotentiometerChipSelect[3] = Gpio::Unassigned;
 
-	engineConfiguration->spi1mosiPin = Gpio::B5;
-	engineConfiguration->spi1misoPin = Gpio::B4;
-	engineConfiguration->spi1sckPin = Gpio::B3; // please note that this pin is also SWO/SWD - Single Wire debug Output
+	engineConfiguration->spi1mosiPin = Gpio::C12;
+	engineConfiguration->spi1misoPin = Gpio::C11;
+	engineConfiguration->spi1sckPin = Gpio::C10; // please note that this pin is also SWO/SWD - Single Wire debug Output
 
 	engineConfiguration->spi2mosiPin = Gpio::B15;
 	engineConfiguration->spi2misoPin = Gpio::B14;
 	engineConfiguration->spi2sckPin = Gpio::B13;
 
-	engineConfiguration->spi3mosiPin = Gpio::B5;
-	engineConfiguration->spi3misoPin = Gpio::B4;
-	engineConfiguration->spi3sckPin = Gpio::B3;
+	engineConfiguration->spi3mosiPin = Gpio::C12;
+	engineConfiguration->spi3misoPin = Gpio::C11;
+	engineConfiguration->spi3sckPin = Gpio::C10;
 
 
 
