@@ -1,6 +1,6 @@
 package com.rusefi.output;
 
-import com.opensr5.ini.IniFileModelImpl;
+import com.rusefi.ini.reader.IniFileReader;
 import com.rusefi.*;
 import com.rusefi.parse.TypesHelper;
 
@@ -48,7 +48,7 @@ public abstract class JavaFieldsConsumer implements ConfigurationConsumer {
 
     private boolean isStringField(ConfigField configField) {
         String custom = state.getTsCustomLine().get(configField.getTypeName());
-        return custom != null && custom.toLowerCase().startsWith(IniFileModelImpl.FIELD_TYPE_STRING);
+        return custom != null && custom.toLowerCase().startsWith(IniFileReader.FIELD_TYPE_STRING);
     }
 
     @Override
@@ -121,7 +121,7 @@ public abstract class JavaFieldsConsumer implements ConfigurationConsumer {
     }
 
     private static boolean isUsefulField(ConfigField configField) {
-        return !configField.getName().startsWith(ConfigStructure.UNUSED_ANYTHING_PREFIX);
+        return !configField.getName().startsWith(UnusedPrefix.UNUSED_ANYTHING_PREFIX);
     }
 
     private String terminateField() {

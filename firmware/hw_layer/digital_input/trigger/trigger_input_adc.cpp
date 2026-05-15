@@ -2,6 +2,8 @@
  * @file	trigger_input_adc.cpp
  * @brief	Position sensor hardware layer, Using ADC and software comparator
  *
+ * TODO: dead code?
+ *
  * @date Jan 27, 2020
  * @author andreika <prometheus.pcb@gmail.com>
  * @author Andrey Belomutskiy, (c) 2012-2020
@@ -242,12 +244,14 @@ void TriggerAdcDetector::reset() {
 }
 
 void TriggerAdcDetector::digitalCallback(efitick_t stamp, bool isPrimary, bool rise) {
+  UNUSED(stamp);
+  UNUSED(rise);
+	UNUSED(isPrimary);
 #if !EFI_SIMULATOR && EFI_SHAFT_POSITION_INPUT
 	if (curAdcMode != TRIGGER_ADC_EXTI) {
 		return;
 	}
 
-	UNUSED(isPrimary);
 
 	onTriggerChanged(stamp, isPrimary, rise);
 
@@ -420,6 +424,8 @@ void TriggerAdcDetector::analogCallback(efitick_t stamp, triggerAdcSample_t valu
 #endif // EFI_SHAFT_POSITION_INPUT
 
 	prevStamp = stamp;
+#else
+	UNUSED(stamp); UNUSED(value);
 #endif // ! EFI_SIMULATOR && ((HAL_TRIGGER_USE_ADC && HAL_USE_ADC) || EFI_UNIT_TEST)
 }
 
@@ -431,6 +437,8 @@ void TriggerAdcDetector::setWeakSignal(bool isWeak) {
 	} else {
 		minDeltaThresholdCntPos = minDeltaThresholdCntNeg = 0;
 	}
+#else
+  UNUSED(isWeak);
 #endif // HAL_USE_ADC || EFI_UNIT_TEST
 }
 

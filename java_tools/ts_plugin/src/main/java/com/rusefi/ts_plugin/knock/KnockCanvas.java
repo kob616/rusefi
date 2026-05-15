@@ -37,7 +37,7 @@ public class KnockCanvas {
             g.drawLine(line, 0, line, height);*/
 
             Font f = g.getFont();
-            g.setFont(new Font(f.getName(), Font.CENTER_BASELINE, g.getFont().getSize() - 4));
+            g.setFont(new Font(f.getName(), Font.BOLD, g.getFont().getSize() - 4));
 
             g.setColor(Color.YELLOW);
             for(int i = 0; i < yAxisHz.length / 8; ++i) {
@@ -51,12 +51,12 @@ public class KnockCanvas {
                 g.drawString(Double.valueOf(round(hz, 1)).toString(), 35,  y);
             }
 
-            mouseFrequency = (float)YScreenToHz(mouse_y, height);
+            float mouseFrequency = (float) YScreenToHz(mouse_y, height);
 
             int mouseSpecX = canvasXToSpectrogramSpace(mouse_x, false);
             int mouseSpecY = canvasYToSpectrogramSpace(mouse_y);
 
-            mouseAmplitude = specrtogram[mouseSpecX][mouseSpecY];
+            float mouseAmplitude = spectrogram[mouseSpecX][mouseSpecY];
 
             //Font f = g.getFont();
             g.setFont(new Font(f.getName(), Font.BOLD, g.getFont().getSize()));
@@ -80,7 +80,11 @@ public class KnockCanvas {
 
             g.setFont(new Font(f.getName(), Font.BOLD, g.getFont().getSize() * 5));
             g.setColor(Color.WHITE);
-            g.drawString(Integer.valueOf(number).toString(), 10,  30);
+            if (isCombined) {
+                g.drawString("Combined", 10,  30);
+            } else {
+                g.drawString(Integer.valueOf(number).toString(), 10,  30);
+            }
 
             g.setFont(f);
 
@@ -99,46 +103,42 @@ public class KnockCanvas {
             g.dispose();
         }
     };
+    private final boolean isCombined;
 
     private BufferedImage bufferedImage;
     private Graphics2D bufferedGraphics;
 
-    private int SPECTROGRAM_X_AXIS_SIZE_BASE = 1024 * 4;
-    private int SPECTROGRAM_X_AXIS_SIZE = SPECTROGRAM_X_AXIS_SIZE_BASE;
-    private float[][] specrtogram;
-    private Color[] colorspace;
+    private static final int SPECTROGRAM_X_AXIS_SIZE_BASE = 1024 * 4;
 
-    private int spectrogramYAxisSize;
+    private final int SPECTROGRAM_X_AXIS_SIZE;
+    private final float[][] spectrogram;
+    private final Color[] colorspace;
+
+    private final int spectrogramYAxisSize;
 
     private int currentIndexXAxis = 0;
 
-    private int number = 1;
+    private final int number;
 
-
-    public double yAxisHz[];
-    private int yAxisFequencyStart = -1;
-    private float yAxisFequencyStep = -1;
-
+    public double[] yAxisHz;
+    private int yAxisFrequencyStart = -1;
+    private float yAxisFrequencyStep = -1;
 
     private float currentFrequency = 0;
     private float currentAmplitude = 0;
-
 
     private int peakY = 0;
     private float peakFrequency = 0;
     private float peakAmplitude = 0;
     private int peakAmplitudeCol = 0;
 
+    private int mouse_x = 0;
+    private int mouse_y = 0;
 
-    int mouse_x = 0;
-    int mouse_y = 0;
-    private float mouseFrequency = 0;
-    private float mouseAmplitude = 0;
+    public KnockCanvas(int number, int divider, boolean isCombined) {
+        this.isCombined = isCombined;
 
-
-    public KnockCanvas(int number, int divider) {
-
-        SwingUtilities.invokeLater(() -> AutoupdateUtil.trueLayout(component));
+        SwingUtilities.invokeLater(() -> AutoupdateUtil.trueLayoutAndRepaint(component));
 
         this.number = number;
         SPECTROGRAM_X_AXIS_SIZE = SPECTROGRAM_X_AXIS_SIZE_BASE / divider;
@@ -173,13 +173,13 @@ public class KnockCanvas {
         yAxisHz = new double[64]; // protocol size
 
         spectrogramYAxisSize = yAxisHz.length;
-        specrtogram = new float[SPECTROGRAM_X_AXIS_SIZE][spectrogramYAxisSize];
+        spectrogram = new float[SPECTROGRAM_X_AXIS_SIZE][spectrogramYAxisSize];
     }
 
     public void setFrequencyStart(int start) {
-        boolean needSetup = this.yAxisFequencyStart < 0;
+        boolean needSetup = this.yAxisFrequencyStart < 0;
 
-        this.yAxisFequencyStart = start;
+        this.yAxisFrequencyStart = start;
 
         if(needSetup) {
             setupFrequencyYAxis();
@@ -193,9 +193,9 @@ public class KnockCanvas {
 
     public void setFrequencyStep(float step) {
 
-        boolean needSetup = this.yAxisFequencyStep < 0;
+        boolean needSetup = this.yAxisFrequencyStep < 0;
 
-        this.yAxisFequencyStep = step;
+        this.yAxisFrequencyStep = step;
 
         if(needSetup) {
             setupFrequencyYAxis();
@@ -204,12 +204,12 @@ public class KnockCanvas {
 
     public void setupFrequencyYAxis() {
 
-        if(this.yAxisFequencyStep < 0 || this.yAxisFequencyStart < 0) {
+        if(this.yAxisFrequencyStep < 0 || this.yAxisFrequencyStart < 0) {
             return;
         }
 
         for (int i = 0; i < 64; ++i) {
-            float y = (float)this.yAxisFequencyStart + (this.yAxisFequencyStep * (float)i);
+            float y = (float)this.yAxisFrequencyStart + (this.yAxisFrequencyStep * (float)i);
             this.yAxisHz[i] = y;
         }
     }
@@ -217,7 +217,7 @@ public class KnockCanvas {
     public void processValues(float[] values) {
 
         for (int i = 0; i < spectrogramYAxisSize; ++i) {
-            specrtogram[currentIndexXAxis][i] = values[i];
+            spectrogram[currentIndexXAxis][i] = values[i];
         }
 
         int width = bufferedImage.getWidth();
@@ -234,7 +234,7 @@ public class KnockCanvas {
         int maxY = 0;
         for(int x = 0; x < SPECTROGRAM_X_AXIS_SIZE; ++x) {
             for(int y = 0; y < spectrogramYAxisSize; ++y) {
-                float value = specrtogram[x][y];
+                float value = spectrogram[x][y];
                 if(value < min) {
                     min = value;
                 }
@@ -275,7 +275,7 @@ public class KnockCanvas {
 
         for(int y = 0; y < spectrogramYAxisSize; ++y)
         {
-            float value = specrtogram[currentIndexXAxis][y];
+            float value = spectrogram[currentIndexXAxis][y];
             double lvalue = value;
             double lmin = min;
             double lmax = max;
@@ -316,13 +316,13 @@ public class KnockCanvas {
         }
     }
 
-    void resetPeak() {
+    public void resetPeak() {
         peakFrequency = 0;
         peakAmplitude = 0;
         peakY = 0;
     }
 
-    double lerp(double start, double end, double t) {
+    private double lerp(double start, double end, double t) {
         return start * (1 - t) + end * t;
     }
 
@@ -345,7 +345,7 @@ public class KnockCanvas {
         return low;  // key not found.
     }
 
-    int hzToYScreen(double hz, int screen_height) {
+    private int hzToYScreen(double hz, int screen_height) {
 
         int near_hz_index = searchHZ(yAxisHz, 0, yAxisHz.length - 1, hz);
 
@@ -376,7 +376,7 @@ public class KnockCanvas {
         return screen_height - (int)y_screen;
     }
 
-    double YScreenToHz(int screenY, int screen_height) {
+    private double YScreenToHz(int screenY, int screen_height) {
 
         if(screenY < 0 || screenY > screen_height) {
             return 0;
@@ -417,19 +417,21 @@ public class KnockCanvas {
         return hz;
     }
 
+/* dead code?
     int spectrogramSpaceToCanvasX(int x) {
         int width = bufferedImage.getWidth();
         float bx = (float)width / (float)SPECTROGRAM_X_AXIS_SIZE;
         return (int)((float)x * bx);
     }
+*/
 
-    int spectrogramSpaceToCanvasY(int y) {
+    private int spectrogramSpaceToCanvasY(int y) {
         int height = bufferedImage.getHeight();
         float by = (float)height / (float)spectrogramYAxisSize;
         return (int)(((float)spectrogramYAxisSize - 1 - (float)y) * by);
     }
 
-    int canvasXToSpectrogramSpace(int x, boolean reverseOffset) {
+    private int canvasXToSpectrogramSpace(int x, boolean reverseOffset) {
         int width = bufferedImage.getWidth();
         float bx = (float)width / (float)SPECTROGRAM_X_AXIS_SIZE;
 
@@ -459,21 +461,28 @@ public class KnockCanvas {
             }
         }
 
-        return (int)((float)imageX / bx);
+        int i = (int) ((float) imageX / bx);
+        // we shall be in [0, width) range
+        return Integer.min(width - 1, i);
     }
 
-    int canvasYToSpectrogramSpace(int y) {
+    private int canvasYToSpectrogramSpace(int y) {
         int height = bufferedImage.getHeight();
         float by = (float)height / (float)spectrogramYAxisSize;
         return spectrogramYAxisSize - 1 - (int)((float)y / by);
     }
-
+/* some unfinished feature?
     void setupFrequencyByClick(int x, int y) {
 
     }
-
-    float[] getCurrentMouseMagnitudes() {
+*/
+    public float[] getCurrentMouseMagnitudes() {
         int spectrogramSpaceX = this.canvasXToSpectrogramSpace(this.mouse_x, true);
-        return specrtogram[spectrogramSpaceX];
+        return spectrogram[spectrogramSpaceX];
+    }
+
+    public void setMousePosition(int x, int y) {
+        mouse_x = x;
+        mouse_y = y;
     }
 }

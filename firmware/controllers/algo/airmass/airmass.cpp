@@ -22,12 +22,47 @@ float AirmassVeModelBase::getVe(float rpm, float load, bool postState) const {
 
 	percent_t ve = m_veTable->getValue(rpm, load);
 
+#if EFI_PROD_CODE || EFI_UNIT_TEST
+	bool switchTableActive = false;
+
+	const bool pinActive = isBrainPinValid(secondTablesGetState()->secondVeTableInput) &&
+		efiReadPin(secondTablesGetState()->secondVeTableInput, secondTablesGetState()->secondVeTableInputMode);
+
+	if (pinActive) {
+		// Hard switch: pin overrides everything, replace VE entirely
+		ve = interpolate3d(
+			secondTablesGetState()->secondVeTable,
+			secondTablesGetState()->secondVeLoadBins, load,
+			secondTablesGetState()->secondVeRpmBins, rpm
+		);
+		switchTableActive = true;
+	} else {
+		auto result = calculateBlend(
+			secondTablesGetState()->secondVeBlendParameter,
+			secondTablesGetState()->secondVeBlendBins, secondTablesGetState()->secondVeBlendValues,
+			secondTablesGetState()->secondVeTable,
+			secondTablesGetState()->secondVeLoadBins, load,
+			secondTablesGetState()->secondVeRpmBins, rpm
+		);
+		if (result.Bias > 0) {
+			ve = interpolateClamped(0, ve, 100, result.Value, result.Bias);
+			switchTableActive = true;
+		}
+		if (postState) {
+			engine->outputChannels.secondVeBlendParameter = result.BlendParameter;
+			engine->outputChannels.secondVeBlendBias = result.Bias;
+		}
+	}
+#endif
+
+	float idleVeLoad = load;
+
 #if EFI_IDLE_CONTROL
-	auto tps = Sensor::get(SensorType::Tps1);
+	auto tps = Sensor::get(SensorType::DriverThrottleIntent);
 	// get VE from the separate table for Idle if idling
 	if (engine->module<IdleController>()->isIdlingOrTaper() &&
 		tps && engineConfiguration->useSeparateVeForIdle) {
-		float idleVeLoad = getVeLoadAxis(engineConfiguration->idleVeOverrideMode, load);
+		idleVeLoad = getVeLoadAxis(engineConfiguration->idleVeOverrideMode, load);
 
 		percent_t idleVe = interpolate3d(
 			config->idleVeTable,
@@ -68,6 +103,10 @@ float AirmassVeModelBase::getVe(float rpm, float load, bool postState) const {
 	if (postState) {
 		engine->engineState.currentVe = ve;
 		engine->engineState.veTableYAxis = load;
+		engine->engineState.veTableIdleYAxis = idleVeLoad;
+#if EFI_PROD_CODE
+		engine->engineState.isSecondVeTableActive = switchTableActive;
+#endif
 	}
 
 	return ve * PERCENT_DIV;

@@ -10,7 +10,6 @@ import com.rusefi.binaryprotocol.BinaryProtocol;
 import com.rusefi.binaryprotocol.IncomingDataBuffer;
 import com.rusefi.config.generated.Integration;
 import com.rusefi.core.*;
-import com.rusefi.io.ConnectionStateListener;
 import com.rusefi.io.ConnectionStatusLogic;
 import com.rusefi.io.IoStream;
 import com.rusefi.io.LinkManager;
@@ -21,10 +20,9 @@ import com.rusefi.io.tcp.BinaryProtocolServer;
 import com.rusefi.io.tcp.ServerSocketReference;
 import com.rusefi.maintenance.ExecHelper;
 import com.rusefi.tools.online.Online;
-import com.rusefi.ui.AuthTokenPanel;
+import com.rusefi.ts_plugin.ui.AuthTokenPanel;
 import com.rusefi.ui.StatusConsumer;
 import com.rusefi.io.UiLinkManagerHelper;
-import com.rusefi.ui.basic.BasicStartupFrame;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
@@ -57,7 +55,6 @@ public class ConsoleTools {
     static {
         registerTool("help", args -> printTools(), "Print this help.");
         registerTool("headless", ConsoleTools::runHeadless, "Connect to rusEFI controller and start saving logs.");
-        registerTool("basic-ui", BasicStartupFrame::runTool, "Basic UI");
 
         registerTool("functional_test", ConsoleTools::runFunctionalTest, "NOT A USER TOOL. Development tool related to functional testing");
 //        registerTool("convert_binary_configuration_to_xml", ConsoleTools::convertBinaryToXml, "NOT A USER TOOL. Development tool to convert binary configuration into XML form.");
@@ -192,7 +189,7 @@ public class ConsoleTools {
         stream.sendPacket(commandBytes);
         return stream;
     }
-
+/*
     private static void sleepAndPrintNonDaemons(final int millis) {
         new Thread(null, new Runnable() {
             @Override
@@ -213,7 +210,7 @@ public class ConsoleTools {
             }
         }, "test").start();
     }
-
+*/
     private static void setAuthToken(String[] args) {
         String newToken = args[1];
         System.out.println("Saving auth token " + newToken);
@@ -229,7 +226,7 @@ public class ConsoleTools {
         String authToken = AuthTokenPanel.getAuthToken();
         if (authToken.trim().isEmpty()) {
             System.out.println("Auth token not defined. Please use " + SET_AUTH_TOKEN + " command");
-            System.out.println("\tPlease see https://github.com/rusefi/rusefi/wiki/Online");
+            System.out.println("\tPlease see https://wiki.rusefi.com/Online");
             return;
         }
         System.out.println("Auth token: " + authToken);
@@ -270,7 +267,10 @@ public class ConsoleTools {
             return;
         }
         LinkManager linkManager = new LinkManager();
-        linkManager.startAndConnect(autoDetectedPort, new ConnectionStateListener() {
+        linkManager.startAndConnect(autoDetectedPort, new ConnectionStatusLogic.Listener() {
+            @Override
+            public void onConnectionStatus(boolean isConnected) {}
+
             @Override
             public void onConnectionEstablished() {
                 onConnectionEstablished.apply(linkManager);

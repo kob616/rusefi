@@ -1,6 +1,6 @@
 /*
  * file can_bench_test.cpp
- * see also https://github.com/rusefi/rusefi/wiki/CAN BENCH_TEST_BASE_ADDRESS 0x770000
+ * see also https://wiki.rusefi.com/CAN BENCH_TEST_BASE_ADDRESS 0x770000
  *
  * primary recipient is https://github.com/rusefi/rusefi-hardware/tree/main/digital-inputs/firmware
  *
@@ -72,6 +72,8 @@ static void directWritePad(Gpio pin, int value, const char *msg = "") {
   	gpiochips_writePad(pin, value);
 #endif
 	}
+#else
+  UNUSED(value);
 #endif // EFI_GPIO_HARDWARE && EFI_PROD_CODE
 }
 
@@ -114,6 +116,8 @@ static void setPin(const CANRxFrame& frame, int value) {
         }
 
         directWritePad(pin, value);
+#else
+  UNUSED(value);
 #endif // EFI_GPIO_HARDWARE && EFI_PROD_CODE
 }
 
@@ -181,8 +185,19 @@ void sendQcBenchRawAnalogValues(size_t bus) {
 		Sensor::getRaw(SensorType::FuelPressureHigh),
 		Sensor::getRaw(SensorType::AuxTemp1),
 	};
+	const float lua_values_1[] = {
+		Sensor::getRaw(SensorType::AuxAnalog1),
+		Sensor::getRaw(SensorType::AuxAnalog2),
+		Sensor::getRaw(SensorType::AuxAnalog3),
+		Sensor::getRaw(SensorType::AuxAnalog4),
+		Sensor::getRaw(SensorType::AuxAnalog5),
+		Sensor::getRaw(SensorType::AuxAnalog6),
+		Sensor::getRaw(SensorType::AuxAnalog7),
+		Sensor::getRaw(SensorType::AuxAnalog8),
+	};
 	static_assert(efi::size(values_1) <= 8);
 	static_assert(efi::size(values_2) <= 8);
+	static_assert(efi::size(lua_values_1) <= 8);
 
 
 	// send the first packet
@@ -198,6 +213,13 @@ void sendQcBenchRawAnalogValues(size_t bus) {
 			msg[valueIdx] = RAW_TO_BYTE(values_2[valueIdx]);
 		}
 	}
+	// todo: time to extract method already?
+	{
+		CanTxMessage msg(CanCategory::BENCH_TEST, (int)bench_test_packet_ids_e::RAW_LUA_ANALOG_1, 8, bus, /*isExtended*/true);
+		for (size_t valueIdx = 0; valueIdx < efi::size(lua_values_1); valueIdx++) {
+			msg[valueIdx] = RAW_TO_BYTE(lua_values_1[valueIdx]);
+		}
+	}
 }
 
 static void sendOutBoardMeta(size_t bus) {
@@ -208,6 +230,8 @@ static void sendOutBoardMeta(size_t bus) {
 	msg[2] = getBoardMetaOutputsCount();
 	msg[3] = getBoardMetaLowSideOutputsCount();
 	msg[4] = getBoardMetaDcOutputsCount();
+#else
+  UNUSED(bus);
 #endif // EFI_PROD_CODE
 }
 
@@ -228,6 +252,8 @@ void sendQcBenchBoardStatus(size_t bus) {
 	msg[5] = engineType >> 8;
 	msg[6] = engineType;
 	sendOutBoardMeta(bus);
+#else
+  UNUSED(bus);
 #endif // EFI_PROD_CODE
 }
 

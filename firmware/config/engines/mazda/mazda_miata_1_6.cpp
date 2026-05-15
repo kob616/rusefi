@@ -2,7 +2,7 @@
  * @file mazda_miata_1_6.cpp
  *
  *
- * https://github.com/rusefi/rusefi/wiki/Frankenso_MazdaMiataNA6_pnp
+ * https://wiki.rusefi.com/Frankenso_MazdaMiataNA6_pnp
  *
  *
  * Frankenso board
@@ -141,7 +141,7 @@ void miataNAcommonEngineSettings() {
 
 	setMapVeTable();
 
-	engineConfiguration->idleMode = IM_AUTO;
+	engineConfiguration->idleMode = idle_mode_e::IM_AUTO;
 	// below 20% this valve seems to be opening for fail-safe idle air
 	engineConfiguration->idleRpmPid.minValue = 20;
 	engineConfiguration->idleRpmPid.pFactor = 0.01;

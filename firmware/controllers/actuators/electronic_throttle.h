@@ -12,13 +12,15 @@
 #include "engine_configuration.h"
 
 void initElectronicThrottle();
-void doInitElectronicThrottle();
+void doInitElectronicThrottle(bool isStartupInit);
 
 void setEtbIdlePosition(percent_t pos);
 void setEtbWastegatePosition(percent_t pos);
 void setEtbLuaAdjustment(percent_t adjustment);
 void setEwgLuaAdjustment(percent_t pos);
 void setHitachiEtbCalibration();
+
+void pickEtbOrStepper();
 
 void blinkEtbErrorCodes(bool blinkPhase);
 
@@ -36,6 +38,7 @@ void unregisterEtbPins();
 void setProteusHitachiEtbDefaults();
 
 void etbAutocal(dc_function_e function, bool reportToTs = true);
+void etbBenchTestStart(size_t throttleIndex);
 EtbStatus etbGetState(size_t throttleIndex);
 
 float getSanitizedPedal();
@@ -65,11 +68,12 @@ public:
 	// Initialize the throttle.
 	// returns true if the throttle was initialized, false otherwise.
 	virtual bool init(dc_function_e function, DcMotor *motor, pid_s *pidParameters, const ValueProvider3D* pedalMap) = 0;
-	virtual void reset() = 0;
+	virtual void reset(const char *reason) = 0;
 	virtual void setIdlePosition(percent_t pos) = 0;
 	virtual void setWastegatePosition(percent_t pos) = 0;
 	virtual void update() = 0;
 	virtual void autoCalibrateTps(bool reportToTs = true) { (void)reportToTs; }
+	virtual void startBenchTest() {}
 	virtual bool isEtbMode() const = 0;
 
 	virtual const pid_state_s& getPidState() const = 0;

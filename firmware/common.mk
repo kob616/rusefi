@@ -1,13 +1,38 @@
+#
+# this file is shared between embedded, simulator and unit_tests - BUT NOT BOOTLOADER?
+# see rusefi_rules.mk which is more shared
+#
+
 include $(PROJECT_DIR)/init/init.mk
 include $(PROJECT_DIR)/util/util.mk
 include $(PROJECT_DIR)/config/engines/engines.mk
 include $(PROJECT_DIR)/console/console.mk
-include $(PROJECT_DIR)/controllers/lua/lua.mk
 include $(PROJECT_DIR)/controllers/controllers.mk
+include $(PROJECT_DIR)/controllers/lua/lua.mk
 include $(PROJECT_DIR)/development/development.mk
 include $(PROJECT_DIR)/hw_layer/hw_layer.mk
 include $(PROJECT_DIR)/hw_layer/sensors/sensors.mk
 include $(PROJECT_DIR)/hw_layer/drivers/drivers.mk
+
+FW_CONFIG_DIR = $(PROJECT_DIR)/config
+
+ifneq ($(BOARD_DIR),)
+# FW customization hook file
+ifneq ("$(wildcard ../firmware/$(BOARD_DIR)/fw_configuration.cpp)","")
+	ALLCPPSRC += ../firmware/$(BOARD_DIR)/fw_configuration.cpp
+else
+	ALLCPPSRC += $(FW_CONFIG_DIR)/fw_default_configuration.cpp
+endif
+
+# Default tune for board?
+ifneq ("$(wildcard ../firmware/$(BOARD_DIR)/default_tune.cpp)","")
+	BOARDCPPSRC += ../firmware/$(BOARD_DIR)/default_tune.cpp
+endif
+else
+	# default setup_custom_fw_overrides() even no BOARD_DIR is defined (unit tests)
+	ALLCPPSRC += $(FW_CONFIG_DIR)/fw_default_configuration.cpp
+endif
+
 
 ALLCSRC += \
 	$(UTILSRC)
@@ -37,13 +62,21 @@ ifneq ("$(wildcard $(BOARD_DIR)/board_unit_tests.mk)","")
 endif
 LIVE_DATA_GENERATED_DIRS += $(PROJECT_DIR)/live_data_generated
 
+ifeq ($(SHORT_BOARD_NAME),)
+  SHORT_BOARD_NAME = f407-discovery
+endif
+
+# Board-specific generated header overrides are now in rusefi_rules.mk (shared by all configurations).
+
 ALLINC += \
+	$(FW_CONFIG_DIR) \
 	$(CONSOLE_INC) \
  	$(DEVELOPMENT_DIR) \
 	$(ENGINES_INC) \
 	$(PROJECT_DIR)/config/engines \
 	$(LIVE_DATA_GENERATED_DIRS) \
 	$(BOARDS_DIR) \
+	$(PROJECT_DIR)/ext/magic_enum/include/magic_enum \
 	$(PROJECT_DIR)/hw_layer/algo \
     $(PROJECT_DIR)/init \
     $(PROJECT_DIR)/ext_algo \

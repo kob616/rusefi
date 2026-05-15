@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * https://github.com/rusefi/rusefi/wiki/Engine-Types
+ * https://wiki.rusefi.com/Engine-Types
  */
 enum class engine_type_e : uint16_t {
 	DEFAULT_FRANKENSO = 0,
@@ -23,7 +23,7 @@ enum class engine_type_e : uint16_t {
 	 */
 	MRE_SECONDARY_CAN = 4,
 
-	UNUSED_5 = 5,
+	GM_SBC_GEN3 = 5,
 	HARLEY = 6,
 	FORD_INLINE_6_1995 = 7,
 	/**
@@ -107,7 +107,7 @@ enum class engine_type_e : uint16_t {
 
 	TEST_ENGINE_VVT = 45,
 
-	DODGE_NEON_2003_CRANK = 46,
+	ET_DODGE_NEON_2003 = 46,
 
 	GM_LCV = 47,
 

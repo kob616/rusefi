@@ -9,12 +9,12 @@
 
 #include "pch.h"
 
-#if EFI_CAN_SUPPORT
+#if EFI_CAN_SUPPORT || EFI_UNIT_TEST
 #include "can_dash.h"
 #include "can_dash_ms.h"
 #include "can_dash_nissan.h"
 #include "can_dash_haltech.h"
-#include "can_msg_tx.h"
+#include "board_overrides.h"
 #include "can_bmw.h"
 #include "can_vag.h"
 #include "can_dash_honda.h"
@@ -43,14 +43,18 @@
 #define E90_RPM              0x175
 #define E90_BRAKE_COUNTER    0x19E
 #define E90_SPEED            0x1A6
+// https://github.com/HeinrichG-V12/E65_ReverseEngineering/blob/main/docs/0x1D0.md
 #define E90_TEMP             0x1D0
+// MECH Anzeige Getriebedaten
 #define E90_GEAR             0x1D2
 #define E90_FUEL             0x349
 #define E90_EBRAKE           0x34F
 #define E90_TIME             0x39E
 
+#if !EFI_UNIT_TEST
 static time_msecs_t mph_timer;
 static time_msecs_t mph_ctr;
+#endif
 
 /**
  * https://docs.google.com/spreadsheets/d/1IkP05ODpjNt-k4YQLYl58_TNlN9U4IBu5z7i0BPVEM4
@@ -86,7 +90,7 @@ static void canDashboardBmwE46(CanCycle cycle) {
 
 	if (cycle.isInterval(CI::_10ms)) {
 		{
-			CanTxMessage msg(CanCategory::NBC, CAN_BMW_E46_RPM);
+   CanTxMessage msg(CanCategory::NBC, CAN_BMW_E46_RPM, 8, DEFAULT_BUS_INDEX);
       msg[0] = 0x05; // ASC message
       msg[1] = 0x0C; // Indexed Engine Torque in % of C_TQ_STND TBD
 			msg.setShortValue((int) (Sensor::getOrZero(SensorType::Rpm) * 6.4), 2);
@@ -97,7 +101,7 @@ static void canDashboardBmwE46(CanCycle cycle) {
 		}
 
 		{
-			CanTxMessage msg(CanCategory::NBC, CAN_BMW_E46_DME2);
+   CanTxMessage msg(CanCategory::NBC, CAN_BMW_E46_DME2, 8, DEFAULT_BUS_INDEX);
       msg[0] = 0x11;
       msg[1] = (Sensor::getOrZero(SensorType::Clt) + 48.373) / 0.75;
       msg[2] = 0x00; // baro sensor
@@ -114,12 +118,12 @@ static void canDashboardBmwE46(CanCycle cycle) {
 void canMazdaRX8(CanCycle cycle) {
 	if (cycle.isInterval(CI::_50ms)) {
 		{
-			CanTxMessage msg(CanCategory::NBC, CAN_MAZDA_RX_STEERING_WARNING);
+   CanTxMessage msg(CanCategory::NBC, CAN_MAZDA_RX_STEERING_WARNING, 8, DEFAULT_BUS_INDEX);
 			// todo: something needs to be set here? see http://rusefi.com/wiki/index.php?title=Vehicle:Mazda_Rx8_2004
 		}
 
 		{
-			CanTxMessage msg(CanCategory::NBC, CAN_MAZDA_RX_RPM_SPEED);
+   CanTxMessage msg(CanCategory::NBC, CAN_MAZDA_RX_RPM_SPEED, 8, DEFAULT_BUS_INDEX);
 
 			float kph = Sensor::getOrZero(SensorType::VehicleSpeed);
 
@@ -132,7 +136,7 @@ void canMazdaRX8(CanCycle cycle) {
 		}
 
 		{
-			CanTxMessage msg(CanCategory::NBC, CAN_MAZDA_RX_STATUS_1);
+   CanTxMessage msg(CanCategory::NBC, CAN_MAZDA_RX_STATUS_1, 8, DEFAULT_BUS_INDEX);
 			msg[0] = 0xFE; //Unknown
 			msg[1] = 0xFE; //Unknown
 			msg[2] = 0xFE; //Unknown
@@ -144,7 +148,7 @@ void canMazdaRX8(CanCycle cycle) {
 		}
 
 		{
-			CanTxMessage msg(CanCategory::NBC, CAN_MAZDA_RX_STATUS_2);
+   CanTxMessage msg(CanCategory::NBC, CAN_MAZDA_RX_STATUS_2, 8, DEFAULT_BUS_INDEX);
 			auto clt = Sensor::get(SensorType::Clt);
 			msg[0] = (uint8_t)(clt.value_or(0) + 69); //temp gauge //~170 is red, ~165 last bar, 152 centre, 90 first bar, 92 second bar
 			// TODO: fixme!
@@ -173,7 +177,7 @@ void canDashboardFiat(CanCycle cycle) {
 	if (cycle.isInterval(CI::_50ms)) {
 		{
 			//Fiat Dashboard
-			CanTxMessage msg(CanCategory::NBC, CAN_FIAT_MOTOR_INFO);
+   CanTxMessage msg(CanCategory::NBC, CAN_FIAT_MOTOR_INFO, 8, DEFAULT_BUS_INDEX);
 			msg.setShortValue((int) (Sensor::getOrZero(SensorType::Clt) - 40), 3); //Coolant Temp
 			msg.setShortValue(Sensor::getOrZero(SensorType::Rpm) / 32, 6); //RPM
 		}
@@ -185,24 +189,24 @@ void canDashboardVAG(CanCycle cycle) {
 		{
 			// https://github.com/commaai/opendbc/blob/57c8340a180dd8c75139b18050eb17c72c9cb6e4/vw_golf_mk4.dbc#L394
 			//VAG Dashboard
-			CanTxMessage msg(CanCategory::NBC, CAN_VAG_Motor_1);
+   CanTxMessage msg(CanCategory::NBC, CAN_VAG_Motor_1, 8, DEFAULT_BUS_INDEX);
 			msg.setShortValue(Sensor::getOrZero(SensorType::Rpm) * 4, 2); //RPM
 		}
 
 		float clt = Sensor::getOrZero(SensorType::Clt);
 
 		{
-			CanTxMessage msg(CanCategory::NBC, CAN_VAG_Motor_2);
+   CanTxMessage msg(CanCategory::NBC, CAN_VAG_Motor_2, 8, DEFAULT_BUS_INDEX);
 			msg.setShortValue((int) ((clt + 48.373) / 0.75), 1); //Coolant Temp
 		}
 
 		{
-			CanTxMessage msg(CanCategory::NBC, CAN_VAG_CLT_V2);
+   CanTxMessage msg(CanCategory::NBC, CAN_VAG_CLT_V2, 8, DEFAULT_BUS_INDEX);
 			msg.setShortValue((int) ((clt + 48.373) / 0.75), 4); //Coolant Temp
 		}
 
 		{
-			CanTxMessage msg(CanCategory::NBC, CAN_VAG_IMMO);
+   CanTxMessage msg(CanCategory::NBC, CAN_VAG_IMMO, 8, DEFAULT_BUS_INDEX);
 			msg.setShortValue(0x80, 1);
 		}
 	}
@@ -211,7 +215,7 @@ void canDashboardVAG(CanCycle cycle) {
 void canDashboardW202(CanCycle cycle) {
 	if (cycle.isInterval(CI::_20ms)) {
 		{
-			CanTxMessage msg(CanCategory::NBC, W202_STAT_1);
+   CanTxMessage msg(CanCategory::NBC, W202_STAT_1, 8, DEFAULT_BUS_INDEX);
 			msg[0] = 0x08; // Unknown
 			msg.setShortValueMsb(Sensor::getOrZero(SensorType::Rpm), 1);
 			msg[3] = 0x00; // 0x01 - tank blink, 0x02 - EPC
@@ -224,7 +228,7 @@ void canDashboardW202(CanCycle cycle) {
 
 	if (cycle.isInterval(CI::_100ms)) {
 		{
-			CanTxMessage msg(CanCategory::NBC, W202_STAT_2); //dlc 7
+   CanTxMessage msg(CanCategory::NBC, W202_STAT_2, 8, DEFAULT_BUS_INDEX); //dlc 7
 			msg[0] = (int)(Sensor::getOrZero(SensorType::Clt) + 40); // CLT -40 offset
 			msg[1] = 0x3D; // TBD
 			msg[2] = 0x63; // Const
@@ -238,7 +242,7 @@ void canDashboardW202(CanCycle cycle) {
 
 	if (cycle.isInterval(CI::_200ms)) {
 		{
-			CanTxMessage msg(CanCategory::NBC, W202_ALIVE);
+   CanTxMessage msg(CanCategory::NBC, W202_ALIVE, 8, DEFAULT_BUS_INDEX);
 			msg[0] = 0x0A; // Const
 			msg[1] = 0x18; // Const
 			msg[2] = 0x00; // Const
@@ -250,7 +254,7 @@ void canDashboardW202(CanCycle cycle) {
 		}
 
 		{
-			CanTxMessage msg(CanCategory::NBC, W202_STAT_3);
+   CanTxMessage msg(CanCategory::NBC, W202_STAT_3, 8, DEFAULT_BUS_INDEX);
 			msg[0] = 0x00; // Const
 			msg[1] = 0x00; // Const
 			msg[2] = 0x6D; // TBD
@@ -266,11 +270,11 @@ void canDashboardW202(CanCycle cycle) {
 void canDashboardGenesisCoupe(CanCycle cycle) {
 	if (cycle.isInterval(CI::_50ms)) {
     {
-			CanTxMessage msg(CanCategory::NBC, GENESIS_COUPLE_RPM_316, 8);
+   CanTxMessage msg(CanCategory::NBC, GENESIS_COUPLE_RPM_316, 8, DEFAULT_BUS_INDEX);
 			msg.setShortValueMsb(Sensor::getOrZero(SensorType::Rpm) * 4, /*offset*/ 3);
 	  }
 		{
-			CanTxMessage msg(CanCategory::NBC, GENESIS_COUPLE_COOLANT_329, 8);
+   CanTxMessage msg(CanCategory::NBC, GENESIS_COUPLE_COOLANT_329, 8, DEFAULT_BUS_INDEX);
 			int clt = Sensor::getOrZero(SensorType::Clt) * 2;
 			msg[1] = clt;
 		}
@@ -284,13 +288,13 @@ void canDashboardVagMqb(CanCycle cycle) {
 	if (cycle.isInterval(CI::_50ms)) {
 
 		{ // 'turn-on'
-			CanTxMessage msg(CanCategory::NBC, 0x3C0, 4);
+   CanTxMessage msg(CanCategory::NBC, 0x3C0, 4, DEFAULT_BUS_INDEX);
 			// ignition ON
 			msg[2] = 3;
 		}
 
 		{ //RPM
-			CanTxMessage msg(CanCategory::NBC, 0x107, 8);
+   CanTxMessage msg(CanCategory::NBC, 0x107, 8, DEFAULT_BUS_INDEX);
 			msg.setShortValue(Sensor::getOrZero(SensorType::Rpm) / 3.5, /*offset*/ 3);
 		}
 	}
@@ -301,7 +305,7 @@ static void canDashboardBmwE90(CanCycle cycle) {
 	if (cycle.isInterval(CI::_50ms)) {
 
 		{ //T15 'turn-on'
-			CanTxMessage msg(CanCategory::NBC, E90_T15, 5);
+   CanTxMessage msg(CanCategory::NBC, E90_T15, 5, DEFAULT_BUS_INDEX);
 			msg[0] = 0x45;
 			msg[1] = 0x41;
 			msg[2] = 0x61;
@@ -310,7 +314,7 @@ static void canDashboardBmwE90(CanCycle cycle) {
 		}
 
 		{ //Ebrake light
-			CanTxMessage msg(CanCategory::OBD, E90_EBRAKE, 2);
+   CanTxMessage msg(CanCategory::OBD, E90_EBRAKE, 2, DEFAULT_BUS_INDEX);
 			msg[0] = 0xFD;
 			msg[1] = 0xFF;
 		}
@@ -319,7 +323,7 @@ static void canDashboardBmwE90(CanCycle cycle) {
 			rpmcounter++;
 			if (rpmcounter > 0xFE)
 				rpmcounter = 0xF0;
-			CanTxMessage msg(CanCategory::OBD, E90_RPM, 3);
+   CanTxMessage msg(CanCategory::OBD, E90_RPM, 3, DEFAULT_BUS_INDEX);
 			msg[0] = rpmcounter;
 			msg.setShortValue(Sensor::getOrZero(SensorType::Rpm) * 4, 1);
 		}
@@ -328,7 +332,7 @@ static void canDashboardBmwE90(CanCycle cycle) {
 			tmp_cnt++;
 			if (tmp_cnt >= 0x0F)
 				tmp_cnt = 0x00;
-			CanTxMessage msg(CanCategory::OBD, E90_TEMP, 8);
+   CanTxMessage msg(CanCategory::OBD, E90_TEMP, 8, DEFAULT_BUS_INDEX);
 			msg[0] = (int)(Sensor::getOrZero(SensorType::Clt) + e90_temp_offset); //coolant
 			msg[1] = (int)(Sensor::getOrZero(SensorType::AuxTemp1) + e90_temp_offset); //oil (AuxTemp1)
 			msg[2] = tmp_cnt;
@@ -346,7 +350,7 @@ static void canDashboardBmwE90(CanCycle cycle) {
 			seatbeltcnt++;
 			if (seatbeltcnt > 0xFE)
 				seatbeltcnt = 0x00;
-			CanTxMessage msg(CanCategory::NBC, E90_SEATBELT_COUNTER, 2);
+   CanTxMessage msg(CanCategory::NBC, E90_SEATBELT_COUNTER, 2, DEFAULT_BUS_INDEX);
 			msg[0] = seatbeltcnt;
 			msg[1] = 0xFF;
 		}
@@ -359,7 +363,7 @@ static void canDashboardBmwE90(CanCycle cycle) {
 				brakecnt_1 = 0x0F;
 			if (brakecnt_2 > 0xF0)
 				brakecnt_2 = 0xA0;
-			CanTxMessage msg(CanCategory::NBC, E90_BRAKE_COUNTER, 8);
+   CanTxMessage msg(CanCategory::NBC, E90_BRAKE_COUNTER, 8, DEFAULT_BUS_INDEX);
 			msg[0] = 0x00;
 			msg[1] = 0xE0;
 			msg[2] = brakecnt_1;
@@ -374,13 +378,13 @@ static void canDashboardBmwE90(CanCycle cycle) {
 			abscounter++;
 			if (abscounter > 0xFE)
 				abscounter = 0xF0;
-			CanTxMessage msg(CanCategory::NBC, E90_ABS_COUNTER, 2);
+   CanTxMessage msg(CanCategory::NBC, E90_ABS_COUNTER, 2, DEFAULT_BUS_INDEX);
 			msg[0] = abscounter;
 			msg[1] = 0xFF;
 		}
 
 		{ //Fuel gauge
-			CanTxMessage msg(CanCategory::NBC, E90_FUEL, 5); //fuel gauge
+   CanTxMessage msg(CanCategory::NBC, E90_FUEL, 5, DEFAULT_BUS_INDEX); //fuel gauge
 			msg[0] = 0x76;
 			msg[1] = 0x0F;
 			msg[2] = 0xBE;
@@ -392,7 +396,7 @@ static void canDashboardBmwE90(CanCycle cycle) {
 			gear_cnt++;
 			if (gear_cnt >= 0x0F)
 				gear_cnt = 0x00;
-			CanTxMessage msg(CanCategory::NBC, E90_GEAR, 6);
+   CanTxMessage msg(CanCategory::NBC, E90_GEAR, 6, DEFAULT_BUS_INDEX);
 			msg[0] = 0x78;
 			msg[1] = 0x0F;
 			msg[2] = 0xFF;
@@ -401,6 +405,7 @@ static void canDashboardBmwE90(CanCycle cycle) {
 			msg[5] = 0xFF;
 		}
 
+#if !EFI_UNIT_TEST
 		{ //E90_SPEED
 			auto vehicleSpeed = Sensor::getOrZero(SensorType::VehicleSpeed);
 			float mph = vehicleSpeed * 0.6213712;
@@ -412,7 +417,7 @@ static void canDashboardBmwE90(CanCycle cycle) {
 			if(mph_counter >= 0xFFF0)
 				mph_counter = 0xF000;
 			mph_timer = TIME_I2MS(chVTGetSystemTime());
-			CanTxMessage msg(CanCategory::NBC, E90_SPEED, 8);
+   CanTxMessage msg(CanCategory::NBC, E90_SPEED, 8, DEFAULT_BUS_INDEX);
 			msg.setShortValue(mph_2a, 0);
 			msg.setShortValue(mph_2a, 2);
 			msg.setShortValue(mph_2a, 4);
@@ -420,6 +425,7 @@ static void canDashboardBmwE90(CanCycle cycle) {
 			// todo: what are we packing into what exactly? note the '| 0xF0'
 			msg[7] = (mph_counter >> 8) | 0xF0;
 		}
+#endif
 	}
 
 	{
@@ -432,7 +438,7 @@ static void canDashboardBmwE90(CanCycle cycle) {
 				.hour = 0, .minute = 0, .second = 0,
 			};
 #endif // EFI_RTC
-			CanTxMessage msg(CanCategory::NBC, E90_TIME, 8);
+   CanTxMessage msg(CanCategory::NBC, E90_TIME, 8, DEFAULT_BUS_INDEX);
 			msg[0] = dateTime.hour;
 			msg[1] = dateTime.minute;
 			msg[2] = dateTime.second;
@@ -456,7 +462,7 @@ struct Aim5f0 {
 	scaled_channel<uint16_t, 100> Vss;
 };
 
-static void populateFrame(Aim5f0& msg) {
+void populateFrame(Aim5f0& msg) {
 	msg.Rpm = Sensor::getOrZero(SensorType::Rpm);
 	msg.Tps = Sensor::getOrZero(SensorType::Tps1);
 	msg.Pps = Sensor::getOrZero(SensorType::AcceleratorPedal);
@@ -470,7 +476,7 @@ struct Aim5f1 {
 	scaled_channel<uint16_t, 10> WheelSpeedRL;
 };
 
-static void populateFrame(Aim5f1& msg) {
+void populateFrame(Aim5f1& msg) {
 	// We don't handle wheel speed, just set to 0?
 	msg.WheelSpeedFR = 0;
 	msg.WheelSpeedFL = 0;
@@ -485,7 +491,7 @@ struct Aim5f2 {
 	scaled_channel<uint16_t, 190> OilT;
 };
 
-static void populateFrame(Aim5f2& msg) {
+void populateFrame(Aim5f2& msg) {
 	msg.Iat = Sensor::getOrZero(SensorType::Iat) + 45;
 	msg.Ect = Sensor::getOrZero(SensorType::Clt) + 45;
 	msg.FuelT = Sensor::getOrZero(SensorType::FuelTemperature) + 45;
@@ -499,7 +505,7 @@ struct Aim5f3 {
 	scaled_channel<uint16_t, 20> FuelP;
 };
 
-static void populateFrame(Aim5f3& msg) {
+void populateFrame(Aim5f3& msg) {
 	// MAP/Baro are sent in millibar -> 10 millibar per kpa
 	msg.Map = 10 * Sensor::getOrZero(SensorType::Map);
 	msg.Baro = 10 * Sensor::getOrZero(SensorType::BarometricPressure);
@@ -516,7 +522,7 @@ struct Aim5f4 {
 	scaled_channel<int16_t, 1> Gear;
 };
 
-static void populateFrame(Aim5f4& msg) {
+void populateFrame(Aim5f4& msg) {
 	float deltaKpa = Sensor::getOrZero(SensorType::Map)
 		- Sensor::get(SensorType::BarometricPressure).value_or(STD_ATMOSPHERE);
 	float boostBar = deltaKpa / 100;
@@ -543,7 +549,7 @@ struct Aim5f5 {
 	scaled_channel<uint16_t, 100> FuelLevel;
 };
 
-static void populateFrame(Aim5f5& msg) {
+void populateFrame(Aim5f5& msg) {
 	msg.FuelLevel = Sensor::getOrZero(SensorType::FuelLevel);
 
 	// Dunno what to do with these
@@ -559,7 +565,7 @@ struct Aim5f6 {
 	scaled_channel<uint16_t, 10> LambdaTemp2;
 };
 
-static void populateFrame(Aim5f6& msg) {
+void populateFrame(Aim5f6& msg) {
 	msg.Lambda1 = Sensor::getOrZero(SensorType::Lambda1);
 	msg.Lambda2 = Sensor::getOrZero(SensorType::Lambda2);
 	msg.LambdaTemp1 = 0;
@@ -573,7 +579,7 @@ struct Aim5f7 {
 	scaled_channel<uint16_t, 2000> LambdaTarget2;
 };
 
-static void populateFrame(Aim5f7& msg) {
+void populateFrame(Aim5f7& msg) {
 #if EFI_ENGINE_CONTROL
 	// We don't handle wheel speed, just set to 0?
 	msg.LambdaErr1 = 0;
@@ -609,10 +615,17 @@ void canDashboardAim(CanCycle cycle) {
 	// transmitStruct<Aim5fd>(0x5fd, false);
 }
 
-PUBLIC_API_WEAK void boardUpdateDash(CanCycle cycle) {}
+std::optional<board_can_update_dash_type> custom_board_update_dash;
+
+PUBLIC_API_WEAK void boardUpdateDash(CanCycle cycle) { UNUSED(cycle); }
 
 void updateDash(CanCycle cycle) {
-  boardUpdateDash(cycle);
+	// TODO: use call_board_override
+	if (custom_board_update_dash.has_value()) {
+		custom_board_update_dash.value()(cycle);
+	}
+
+	boardUpdateDash(cycle);
 
 	// Transmit dash data, if enabled
 	switch (engineConfiguration->canNbcType) {
@@ -658,7 +671,7 @@ void updateDash(CanCycle cycle) {
 		canDashboardTS(cycle);
 		break;
 	default:
-		criticalError("Nothing for canNbcType %s", getCan_nbc_e(engineConfiguration->canNbcType));
+		criticalError("Nothing for canNbcType %d/%s", engineConfiguration->canNbcType, getCan_nbc_e(engineConfiguration->canNbcType));
 		break;
 	}
 }

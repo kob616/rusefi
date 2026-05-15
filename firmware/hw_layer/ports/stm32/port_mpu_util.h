@@ -14,6 +14,13 @@
 
 #define MCU_SERIAL_NUMBER_BYTES 12
 
+#define MCU_REVISION_MASK  0xfff
+
+#define STM32_DEVICE_ID_F40x 1043
+#define STM32_DEVICE_ID_F42x 1049
+
+#define GET_MCU_REVISION() (DBGMCU->IDCODE & MCU_REVISION_MASK)
+
 // 4mhz was chosen because it's the GCD of (84, 108, 200), the three speeds of STM32 TIM5 clock currently supported
 // https://www.wolframalpha.com/input/?i=common+factors+of+168+180+216
 #define US_TO_NT_MULTIPLIER (4)
@@ -22,6 +29,8 @@
 #define SCHEDULER_PWM_DEVICE PWMD5
 #define SCHEDULER_TIMER_DEVICE TIM5
 #define SCHEDULER_TIMER_FREQ (US_TO_NT_MULTIPLIER * 1'000'000)
+
+const char *getStm32McuName(int mcuRevision);
 
 /* TODO: rename includes to hal_flash_ex.h with no MCU specific? */
 #ifdef STM32F4XX
@@ -53,9 +62,23 @@ typedef enum {
 } BOR_Level_t;
 #endif
 
-// we are lucky - all CAN pins use the same AF
+// we are lucky - all CAN1/CAN2 pins use the same AF
 #define EFI_CAN_RX_AF 9
 #define EFI_CAN_TX_AF 9
+
+// not lucky with CAN3 and FDCAN3
+#if STM32_CAN_USE_CAN3
+#define EFI_CAN3_RX_AF 11
+#define EFI_CAN3_TX_AF 11
+#endif
+#if STM32_CAN_USE_FDCAN3
+// PD12/PD13
+#define EFI_CAN3_RX_AF 5
+#define EFI_CAN3_TX_AF 5
+// TODO: PG9/PG10 and PF6/PF7
+//#define EFI_CAN3_RX_AF 2
+//#define EFI_CAN3_TX_AF 2
+#endif
 
 #ifndef GPIO_AF_TIM1
 #define GPIO_AF_TIM1 1

@@ -32,9 +32,8 @@
 
 #include "mmc_card.h"
 
-#include "AdcDevice.h"
+#include "adc_device.h"
 #include "idle_hardware.h"
-#include "mcp3208.h"
 
 #include "histogram.h"
 #include "gps_uart.h"
@@ -77,7 +76,12 @@
 std::optional<setup_custom_board_overrides_type> custom_board_InitHardwareEarly;
 std::optional<setup_custom_board_overrides_type> custom_board_InitHardware;
 std::optional<setup_custom_board_overrides_type> custom_board_InitHardwareExtra;
+std::optional<setup_custom_board_overrides_type> custom_board_BeforeTuneDefaults;
 
+std::optional<setup_custom_bool_type> custom_board_isBoardWithPowerManagement;
+
+std::optional<setup_custom_board_engine_type_type> custom_board_AfterTuneDefaults;
+std::optional<setup_custom_board_engine_type_type> custom_board_applyUnknownType;
 
 #if HAL_USE_SPI
 /* zero index is SPI_NONE */
@@ -286,8 +290,10 @@ void onFastAdcComplete(adcsample_t*) {
 	 */
 	efiAssertVoid(ObdCode::CUSTOM_STACK_ADC, hasLotsOfRemainingStack(), "lowstck#9b");
 
+	auto mapRaw = adcRawValueToScaledVoltage(getFastAdc(fastMapSampleIndex), engineConfiguration->map.sensor.hwChannel);
+	engine->outputChannels.rawMapFast = mapRaw;
 #if EFI_MAP_AVERAGING && defined (MODULE_MAP_AVERAGING)
-	mapAveragingAdcCallback(adcRawValueToScaledVoltage(getFastAdc(fastMapSampleIndex), engineConfiguration->map.sensor.hwChannel));
+	mapAveragingAdcCallback(mapRaw);
 #endif /* EFI_MAP_AVERAGING */
 }
 #endif /* HAL_USE_ADC */
@@ -411,13 +417,16 @@ void setBor(int borValue) {
 }
 #endif /* EFI_BOR_LEVEL */
 
-// Weak link a stub so that every board doesn't have to implement this function
 // Called before configuration is loaded
-PUBLIC_API_WEAK void boardInitHardwareEarly() { }
-
-// todo: actually PUBLIC_API_WEAK is too fragile, TODO replace with callback/listener?
-PUBLIC_API_WEAK void boardInitHardware() { }
-PUBLIC_API_WEAK void boardInitHardwareExtra() { }
+void boardInitHardwareEarly() {
+  // forcing migration to custom_board_InitHardwareEarly
+}
+void boardInitHardware() {
+  // time to force migration to custom_board_InitHardware
+}
+void boardInitHardwareExtra() {
+  // forcing migration to custom_board_InitHardwareExtra
+}
 
 // This function initializes hardware that can do so before configuration is loaded
 void initHardwareNoConfig() {
@@ -430,7 +439,6 @@ void initHardwareNoConfig() {
 #endif
 
 #if EFI_PROD_CODE
-	boardInitHardwareEarly();
 	call_board_override(custom_board_InitHardwareEarly);
 #endif
 
@@ -542,13 +550,12 @@ void initHardware() {
 	}
 #endif // STM32_I2C_USE_I2C3
 
-	boardInitHardware();
 	call_board_override(custom_board_InitHardware);
 #if EFI_PROD_CODE
 	// this applies some board configurations
-	boardOnConfigurationChange(nullptr);
+	call_board_override(custom_board_OnConfigurationChange, nullptr);
 #endif // EFI_PROD_CODE
-	boardInitHardwareExtra();
+
 	call_board_override(custom_board_InitHardwareExtra);
 
 #if HAL_USE_ADC
@@ -583,6 +590,8 @@ void initHardware() {
 #if EFI_SIMULATOR
 	// Set CAN device name
 	CAND1.deviceName = "can0";
+	CAND2.deviceName = "can1";
+	CAND3.deviceName = "can2";
 #endif
 
 	initCan();

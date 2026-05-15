@@ -12,7 +12,7 @@ import com.rusefi.io.can.PCanIoStream;
 import com.rusefi.io.can.SocketCANIoStream;
 import com.rusefi.io.tcp.TcpConnector;
 import com.rusefi.io.tcp.TcpIoStream;
-import com.rusefi.util.IoUtils;
+import com.rusefi.util.ExitUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.Closeable;
@@ -75,11 +75,14 @@ public class LinkManager implements Closeable {
     public CountDownLatch connect(String port, boolean isScanningForEcu) {
         final CountDownLatch connected = new CountDownLatch(1);
 
-        startAndConnect(port, new ConnectionStateListener() {
+        startAndConnect(port, new ConnectionStatusLogic.Listener() {
+            @Override
+            public void onConnectionStatus(boolean isConnected) {}
+
             @Override
             public void onConnectionFailed(String s) {
                 if (!isScanningForEcu)
-                    IoUtils.exit("TERMINATING: CONNECTION FAILED, did you specify the right port name? " + s, -1);
+                    ExitUtil.exit("TERMINATING: CONNECTION FAILED, did you specify the right port name? " + s, -1);
             }
 
             @Override
@@ -105,6 +108,24 @@ public class LinkManager implements Closeable {
         SerialPort[] findPorts();
     }
 
+    // todo: proper design? mock?
+    public void setBinaryProtocolForTests(BinaryProtocol binaryProtocol) {
+        this.connector = new LinkConnector() {
+            @Override
+            public void connectAndReadConfiguration(BinaryProtocol.Arguments arguments, ConnectionStatusLogic.Listener listener) {
+            }
+
+            @Override
+            public void send(String command, boolean fireEvent) {
+            }
+
+            @Override
+            public BinaryProtocol getBinaryProtocol() {
+                return binaryProtocol;
+            }
+        };
+    }
+
     public static Set<String> getCommPorts() {
         SerialPort[] ports = SerialPortSource.REAL.findPorts();
         // wow sometimes driver returns same port name more than once?!
@@ -112,10 +133,6 @@ public class LinkManager implements Closeable {
     }
 
     public BinaryProtocol getBinaryProtocol() {
-        return getCurrentStreamState();
-    }
-
-    public BinaryProtocol getCurrentStreamState() {
         Objects.requireNonNull(connector, "connector");
         return connector.getBinaryProtocol();
     }
@@ -224,7 +241,7 @@ public class LinkManager implements Closeable {
 
     public void startAndConnect(
         final String port,
-        final ConnectionStateListener stateListener
+        final ConnectionStatusLogic.Listener stateListener
     ) {
         Objects.requireNonNull(port, "port");
         start(port, stateListener);
@@ -239,16 +256,16 @@ public class LinkManager implements Closeable {
         return connector;
     }
 
-    public void start(String port, ConnectionFailedListener stateListener) {
+    public void start(String port, ConnectionStatusLogic.Listener stateListener) {
         Objects.requireNonNull(port, "port");
         log.info("LinkManager: Starting " + port);
         lastTriedPort = port; // Save port before connection attempt
         if (isLogViewerMode(port)) {
             setConnector(LinkConnector.VOID);
-        } else if (PCAN.equals(port)) {
+        } else if (isPcanPort(port)) {
             Callable<IoStream> streamFactory = PCanIoStream::createStream;
             setConnector(new StreamConnector(this, streamFactory));
-        } else if (SOCKET_CAN.equals(port)) {
+        } else if (isSocketCan(port)) {
             Callable<IoStream> streamFactory = SocketCANIoStream::createStream;
             setConnector(new StreamConnector(this, streamFactory));
         } else if (TcpConnector.isTcpPort(port)) {
@@ -285,6 +302,14 @@ public class LinkManager implements Closeable {
         }
     }
 
+    private static boolean isSocketCan(String port) {
+        return SOCKET_CAN.equals(port);
+    }
+
+    private static boolean isPcanPort(String port) {
+        return PCAN.equals(port);
+    }
+
     public void setConnector(LinkConnector connector) {
         if (isStarted) {
             throw new IllegalStateException("Already started");
@@ -293,11 +318,16 @@ public class LinkManager implements Closeable {
         this.connector = connector;
     }
 
+    public static boolean isSpecialNotSerial(String port) {
+        return isLogViewerMode(port) || isPcanPort(port) || isSocketCan(port) || TcpConnector.isTcpPort(port);
+    }
+
     public static boolean isLogViewerMode(String port) {
         Objects.requireNonNull(port, "port");
         return port.equals(LOG_VIEWER);
     }
 
+    @Deprecated // kill this? we do not plan a any log viewers any time soon?
     public boolean isLogViewer() {
         return connector == LinkConnector.VOID;
     }

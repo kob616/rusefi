@@ -23,7 +23,9 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <csignal>
 
+#include "fw_configuration.h"
 #include "board_overrides.h"
 
 #define CONSOLE_WA_SIZE     THD_WORKING_AREA_SIZE(4096)
@@ -148,11 +150,19 @@ void setup_custom_board_overrides(){
 	custom_board_boardSayHello = myCustomHello;
 }
 
+
 /*------------------------------------------------------------------------*
  * Simulator main.                                                        *
  *------------------------------------------------------------------------*/
 int main(int argc, char** argv) {
 	setbuf(stdout, NULL);
+#ifdef SIGPIPE
+	// Ignore SIGPIPE so that send() on a broken TCP socket returns EPIPE
+	// instead of killing the process.
+	signal(SIGPIPE, SIG_IGN);
+#endif
+	std::filesystem::create_directories("generated");
+	setup_custom_fw_overrides();
 	setup_custom_board_overrides();
 	/*
 	 * System initializations.
@@ -225,6 +235,30 @@ static std::string makeFileName(flashaddr_t addr) {
 	ss << "flash" << addr << ".bin";
 
 	return ss.str();
+}
+
+bool intFlashIsErased(flashaddr_t address, size_t size) {
+	const auto fileName = makeFileName(address);
+
+	std::ifstream flash;
+	flash.open(fileName, std::ios::binary);
+
+	if (!flash.is_open()) {
+		// No file means the area has never been written — treat as erased.
+		return true;
+	}
+
+	char ch;
+	size_t checked = 0;
+	while (checked < size && flash.get(ch)) {
+		if (static_cast<unsigned char>(ch) != 0xFF) {
+			return false;
+		}
+		checked++;
+	}
+
+	// If file is shorter than size, the rest is implicitly 0xFF.
+	return true;
 }
 
 int intFlashErase(flashaddr_t address, size_t) {

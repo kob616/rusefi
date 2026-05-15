@@ -1,5 +1,7 @@
 .dep*
 build/
+triggers/*
+test_triggers
 build_kinetis/
 pinouts
 workarea
@@ -25,12 +27,31 @@ log.txt
 *.rusefi_binary
 *.kicad_prl
 .*-sentinel
+*generated.patch
+
+.gradle
 
 # Eclipse
 .metadata/
+
+# LSP server
+compile_commands.json
 
 # rusEFI simulator makes logs, ignore those
 rusefi_simulator_log.mlg
 
 # bundle
 artifacts
+
+# clangd cache
+
+.cache/
+*.idx
+
+# unit tests
+bean_encoder_test.csv
+
+# gcov local
+venv/
+coverage_reports/
+

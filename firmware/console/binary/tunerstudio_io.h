@@ -9,7 +9,7 @@
 #pragma once
 #include "global.h"
 #include "tunerstudio_impl.h"
-#include "page_1_generated.h"
+#include "page_2_generated.h"
 
 #if EFI_USB_SERIAL
 #include "usbconsole.h"
@@ -63,12 +63,14 @@ public:
 	 */
 	char scratchBuffer[scratchBuffer_SIZE + 30];
 #if EFI_TS_SCATTER
-	page1_s page1;
+	page2_s page2;
 #endif
 	const char *name;
 
 	void assertPacketSize(size_t size, bool allowLongPackets);
 	uint32_t writePacketHeader(const uint8_t responseCode, const size_t size);
+	uint32_t writePacketBody(const uint8_t* buf, const size_t size, uint32_t crc);
+	void writeCrcPacketTail(uint32_t crc);
 	void crcAndWriteBuffer(const uint8_t responseCode, const size_t size);
 	void copyAndWriteSmallCrcPacket(uint8_t responseCode, const uint8_t* buf, size_t size);
 

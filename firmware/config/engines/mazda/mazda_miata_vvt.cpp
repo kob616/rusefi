@@ -274,7 +274,7 @@ static void setCommonMazdaNB() {
 	setArrayValues(config->afterCrankingIACtaperDuration, 250);
 
 	// Idle
-	engineConfiguration->idleMode = IM_AUTO;
+	engineConfiguration->idleMode = idle_mode_e::IM_AUTO;
 	engineConfiguration->iacByTpsTaper = 6;
 	engineConfiguration->acIdleExtraOffset = 15;
 
@@ -396,7 +396,7 @@ static void setMazdaMiataEngineNB2Defaults() {
 #endif // HW_HELLEN
 
 /**
- * https://github.com/rusefi/rusefi/wiki/HOWTO-TCU-A42DE-on-Proteus
+ * https://wiki.rusefi.com/HOWTO-TCU-A42DE-on-Proteus
  */
 #if HW_PROTEUS
 void setMiataNB2_Proteus_TCU() {

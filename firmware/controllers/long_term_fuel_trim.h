@@ -39,10 +39,11 @@ private:
 	LtftState *m_state;
 	// TODO: move to livedata and kill isVeUpdated() ?
 	bool veNeedRefresh = false;
+	bool showUpdateToUser = false;
 
-	float getIntegratorGain() const;
-	float getMaxAdjustment() const;
-	float getMinAdjustment() const;
+	float getIntegratorGain(const ltft_s& cfg, ft_region_e region) const;
+	float getMaxAdjustment(const ltft_s& cfg) const;
+	float getMinAdjustment(const ltft_s& cfg) const;
 
 	Timer pageRefreshTimer{};
 };
@@ -54,4 +55,5 @@ bool ltftNeedVeRefresh();
 void devPokeLongTermFuelTrim();
 
 void *ltftGetTsPage();
+LtftState *ltftGetState();
 size_t ltftGetTsPageSize();

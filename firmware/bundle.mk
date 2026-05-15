@@ -4,6 +4,26 @@ ifeq (,$(BUNDLE_NAME))
   BUNDLE_NAME = $(SHORT_BOARD_NAME)
 endif
 
+ifeq (,$(BUNDLE_DATE))
+  BUNDLE_DATE = yymmdd
+endif
+
+ifeq (,$(GITHUB_SHA))
+  GITHUB_SHA = local
+endif
+
+# SIGNATURE_HASH is the same hash that ends up in the generated .ini TS_SIGNATURE
+# (see gen_signature.sh and $(META_OUTPUT_ROOT_FOLDER)controllers/generated/signature_$(SHORT_BOARD_NAME).h).
+# It uniquely identifies the calibration layout of this firmware build, while
+# GITHUB_SHA identifies the source commit. Including both in the .srec filename
+# lets the autoupdater/console pair an update artifact with the exact .ini it
+# was built against, even when GITHUB_SHA is "local" or duplicated across builds.
+SIGNATURE_HASH_FILE = $(META_OUTPUT_ROOT_FOLDER)controllers/generated/signature_$(SHORT_BOARD_NAME).h
+SIGNATURE_HASH = $(shell awk '/define[ \t]+SIGNATURE_HASH/ {print $$3}' $(SIGNATURE_HASH_FILE) 2>/dev/null)
+ifeq (,$(SIGNATURE_HASH))
+  SIGNATURE_HASH = nohash
+endif
+
 # If we're running on Windows, we need to call the .exe of hex2dfu
 ifeq ($(UNAME_S),)
 	UNAME_S = $(shell uname -s)
@@ -61,8 +81,7 @@ DRIVERS_FOLDER = $(FOLDER)/drivers
 UPDATE_FOLDER_SOURCES = \
   $(RUSEFI_CONSOLE_SETTINGS) \
   $(INI_FILE) \
-  ../misc/console_launcher/readme.html \
-  ../misc/console_launcher/rusefi_updater.exe
+  ../misc/console_launcher/readme.html
 
 FOLDER_SOURCES = \
   ../java_console/bin
@@ -75,23 +94,29 @@ endif
 UPDATE_CONSOLE_FOLDER_SOURCES = \
   $(CONSOLE_JAR) \
   $(BRANCH_REF_FILE) \
-  $(TS_PLUGIN_LAUNCHER_JAR) \
-  $(AUTOUPDATE_JAR)
+  $(TS_PLUGIN_LAUNCHER_JAR)
+
+# Launchers live at the bundle root; they delegate to console/rusefi_console.jar
+ROOT_FOLDER_SOURCES = \
+  ../misc/console_launcher/rusefi_updater.exe \
+  ../misc/console_launcher/rusefi_updater.sh
 
 # todo: remove BootCommander.exe once https://github.com/rusefi/rusefi/issues/6358 is done
 
 CONSOLE_FOLDER_SOURCES = \
-  ../misc/console_launcher/rusefi_autoupdate.exe \
-  ../misc/console_launcher/rusefi_console.exe \
-  $(wildcard ../java_console/*.dll) \
-  ../firmware/ext/openblt/Host/libopenblt.dll \
-  ../firmware/ext/openblt/Host/BootCommander.exe \
-  ../firmware/ext/openblt/Host/libopenblt.so \
-  ../firmware/ext/openblt/Host/libopenblt.dylib \
-  ../firmware/ext/openblt/Host/openblt_jni.dll \
-  ../firmware/ext/openblt/Host/libopenblt_jni.so \
-  ../firmware/ext/openblt/Host/libopenblt_jni.dylib \
   $(SIMULATOR_EXE)
+
+#  $(wildcard ../java_console/*.dll) \
+
+
+#   ../firmware/ext/openblt/Host/libopenblt.dll \
+#   ../firmware/ext/openblt/Host/BootCommander.exe \
+#   ../firmware/ext/openblt/Host/libopenblt.so \
+#   ../firmware/ext/openblt/Host/libopenblt.dylib \
+#   ../firmware/ext/openblt/Host/openblt_jni.dll \
+#   ../firmware/ext/openblt/Host/libopenblt_jni.so \
+#   ../firmware/ext/openblt/Host/libopenblt_jni.dylib \
+
 
 # yes, this one is inverted
 ifneq ($(DO_NOT_BUNDLE_STM32_PROG),yes)
@@ -109,13 +134,15 @@ BOOTLOADER_HEX = bootloader/blbuild/openblt_$(PROJECT_BOARD).hex
 ifeq ($(USE_OPENBLT),yes)
   BOOTLOADER_HEX_OUT = $(BOOTLOADER_HEX)
   BOOTLOADER_BIN_OUT = $(FOLDER)/openblt.bin
-  SREC_TARGET = $(FOLDER)/rusefi_update.srec
+  SREC_TARGET = $(FOLDER)/rusefi_$(BRANCH_REF_FOR_BUNDLE)_$(BUNDLE_DATE)_$(BUNDLE_NAME)_$(SIGNATURE_HASH)_$(GITHUB_SHA)_update.srec
 else
   FIRMWARE_OUTPUTS = $(FOLDER)/$(PROJECT).hex
   BINSRC = $(BUILDDIR)/$(PROJECT).bin
+endif
+
+# we need these files for crash investigations
 ifeq ($(INCLUDE_ELF),yes)
   FIRMWARE_OUTPUTS += $(FOLDER)/$(PROJECT).elf $(FOLDER)/$(PROJECT).map $(FOLDER)/$(PROJECT).list
-endif
 endif
 
 ST_DRIVERS = $(DRIVERS_FOLDER)/silent_st_drivers2.exe
@@ -138,27 +165,29 @@ UPDATE_BUNDLE_FILES = \
   $(MOST_COMMON_BUNDLE_FILES)
 
 FOLDER_TARGETS = $(addprefix $(FOLDER)/,$(notdir $(FOLDER_SOURCES)))
+ROOT_FOLDER_TARGETS = $(addprefix $(FOLDER)/,$(notdir $(ROOT_FOLDER_SOURCES)))
 CONSOLE_FOLDER_TARGETS = $(addprefix $(CONSOLE_FOLDER)/,$(notdir $(CONSOLE_FOLDER_SOURCES)))
 
 FULL_BUNDLE_CONTENT = \
   $(ST_DRIVERS) \
   $(FOLDER_TARGETS) \
+  $(ROOT_FOLDER_TARGETS) \
   $(CONSOLE_FOLDER_TARGETS)
 
 BUNDLE_FILES = \
   $(UPDATE_BUNDLE_FILES) \
   $(FULL_BUNDLE_CONTENT)
 
-$(SIMULATOR_EXE): $(CONFIG_FILES) .FORCE
+$(SIMULATOR_EXE): $(CONFIG_FILES) $(DOCS_ENUMS) .FORCE
 	$(MAKE) -C ../simulator -r OS="Windows_NT" SUBMAKE=yes
 
 # make sure not to invoke in parallel with SIMULATOR_EXE rule above
-../simulator/build/rusefi_simulator.linux: $(CONFIG_FILES) .FORCE
+../simulator/build/rusefi_simulator.linux: $(CONFIG_FILES) $(DOCS_ENUMS) .FORCE
 	$(MAKE) -C ../simulator -r OS="Linux" SUBMAKE=yes
 
 # make Windows simulator a prerequisite so that we don't try compiling them concurrently
 # that also means no incremental compilation making that rule less useful. See 'rusefi_simulator.linux' above
-../simulator/build/rusefi_simulator.both: $(CONFIG_FILES) .FORCE | $(SIMULATOR_EXE)
+../simulator/build/rusefi_simulator.both: $(CONFIG_FILES) $(DOCS_ENUMS) .FORCE | $(SIMULATOR_EXE)
 	$(MAKE) -C ../simulator -r OS="Linux" SUBMAKE=yes
 
 $(BOOTLOADER_HEX) $(BOOTLOADER_BIN): .bootloader-sentinel ;
@@ -183,20 +212,13 @@ $(BOOTLOADER_BIN_OUT): $(FOLDER)/openblt%: bootloader/blbuild/openblt_$(PROJECT_
 $(FIRMWARE_BIN_OUT) $(FOLDER)/$(PROJECT).dfu: $(FOLDER)/%: $(DELIVER)/% | $(FOLDER)
 	ln -rfs $< $@
 
-HEX_BASE_ADDRESS = "0x$(shell $(OD) -h -j .vectors $(BUILDDIR)/$(PROJECT).elf | awk '/.vectors/ {print $$5 }')"
-ifeq ($(USE_OPENBLT),yes)
-  # note how bootloader_size from .ld file is hard-coded here!
-	CHECKSUM_ADDRESS = 0x0800801C
-else
-  # by the way '1C' is the magic address of first reserved DWORD in vector table
-  # by the way hex2dfu lower-case '-c' would also write binary length in second DWORD
-	CHECKSUM_ADDRESS = 0x0800001C
-endif
+HEX_BASE_ADDRESS = $(shell $(OD) -h -j .vectors $(BUILDDIR)/$(PROJECT).elf | awk '/.vectors/ {print $$5 }')
+CHECKSUM_ADDRESS = 0x$(shell echo "ibase=16; obase=10; ${HEX_BASE_ADDRESS} + 1C" | bc)
 
 $(BUILDDIR)/rusefi.srec: $(BUILDDIR)/$(PROJECT).hex
 	# make sure we create the srec from a binary with crc
 	$(H2D) -i $< -c $(CHECKSUM_ADDRESS) -b $(DBIN_CRC)
-	$(CP) -I binary -O srec --change-addresses=$(HEX_BASE_ADDRESS) $(DBIN_CRC) $@
+	$(CP) -I binary -O srec --change-addresses=0x$(HEX_BASE_ADDRESS) $(DBIN_CRC) $@
 
 # The DFU is currently not included in the bundle, so these prerequisites are listed as order-only to avoid building it.
 # If you want it, you can build it with `make rusefi.snapshot.$BUNDLE_NAME/rusefi.dfu`
@@ -213,7 +235,7 @@ else
 endif
 	@touch $@
 
-OBFUSCATED_SREC = $(FOLDER)/rusefi-obfuscated.srec
+OBFUSCATED_SREC = $(FOLDER)/rusefi-$(BRANCH_REF_FOR_BUNDLE)_$(BUNDLE_DATE)_$(BUNDLE_NAME)_$(SIGNATURE_HASH)_$(GITHUB_SHA)_obfuscated.srec
 
 OBFUSCATED_OUT = \
   $(FOLDER)/rusefi-obfuscated.bin \
@@ -228,7 +250,7 @@ $(OBFUSCATED_OUT): .obfuscated-sentinel
 	@touch $@
 
 $(ST_DRIVERS): | $(DRIVERS_FOLDER)
-	wget https://rusefi.com/build_server/st_files/silent_st_drivers2.exe -P $(dir $@)
+	cp ext/rusefi-gha/static-content/silent_st_drivers2.exe $(DRIVERS_FOLDER)
 
 $(DELIVER) $(ARTIFACTS) $(STAGING_FOLDER) $(CONSOLE_FOLDER) $(DRIVERS_FOLDER):
 	mkdir -p $@
@@ -245,7 +267,7 @@ $(ARTIFACTS)/$(WHITE_LABEL_BUNDLE_NAME)_obfuscated_public.zip:  $(OBFUSCATED_OUT
 	zip -r $@ $(FULL_BUNDLE_CONTENT) $(MOST_COMMON_BUNDLE_FILES) $(OBFUSCATED_SREC)
 	[ -z "$(POST_O_ZIP_SCRIPT)" ] || bash $(POST_O_ZIP_SCRIPT)
 
-# The autopdate zip doesn't have a folder with the bundle contents
+# The autoupdate zip doesn't have a folder with the bundle contents
 $(ARTIFACTS)/$(WHITE_LABEL_BUNDLE_NAME)_autoupdate.zip: $(UPDATE_BUNDLE_FILES) | $(ARTIFACTS)
 	cd $(FOLDER) &&	zip -r ../$@ $(subst $(FOLDER)/,,$(UPDATE_BUNDLE_FILES))
 
@@ -282,7 +304,7 @@ CLEAN_BUNDLE_HOOK:
 PERCENT = %
 
 .SECONDEXPANSION:
-$(FOLDER_TARGETS) $(UPDATE_FOLDER_TARGETS): $(FOLDER)/%: $$(filter $$(PERCENT)$$*,$(FOLDER_SOURCES) $(UPDATE_FOLDER_SOURCES)) | $(FOLDER)
+$(FOLDER_TARGETS) $(UPDATE_FOLDER_TARGETS) $(ROOT_FOLDER_TARGETS): $(FOLDER)/%: $$(filter $$(PERCENT)$$*,$(FOLDER_SOURCES) $(UPDATE_FOLDER_SOURCES) $(ROOT_FOLDER_SOURCES)) | $(FOLDER)
 	ln -rfs $< $@
 
 $(CONSOLE_FOLDER_TARGETS) $(UPDATE_CONSOLE_FOLDER_TARGETS): $(CONSOLE_FOLDER)/%: $$(filter $$(PERCENT)$$*,$(CONSOLE_FOLDER_SOURCES) $(UPDATE_CONSOLE_FOLDER_SOURCES)) | $(CONSOLE_FOLDER)

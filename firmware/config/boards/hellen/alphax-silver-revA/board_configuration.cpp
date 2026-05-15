@@ -41,7 +41,7 @@ static void setupDefaultSensorInputs() {
 	engineConfiguration->iat.adcChannel = MM100_IN_IAT_ANALOG;
 }
 
-void setBoardConfigOverrides() {
+static void alphax_silver_revA_boardConfigOverrides() {
 	/* Force PWR_EN as TLE9104s are powered from +5VA */
 	setHellenMegaEnPin();
 
@@ -53,7 +53,7 @@ void setBoardConfigOverrides() {
 	engineConfiguration->vrThreshold[0].pin = Gpio::MM100_OUT_PWM2;
 }
 
-void setBoardDefaultConfiguration() {
+static void alphax_silver_revA_boardDefaultConfiguration() {
 	setInjectorPins();
 	setIgnitionPins();
 	setHellenMMbaro();
@@ -174,7 +174,7 @@ static void alphax_silver_revA_boardInitHardware() {
 	board_init_ext_gpios();
 }
 
-void boardOnConfigurationChange(engine_configuration_s * /*previousConfiguration*/) {
+static void customBoardOnConfigurationChange(engine_configuration_s * /*previousConfiguration*/) {
 	alphaTempPullUp.setValue(engineConfiguration->boardUseTempPullUp);
 	alphaTachSelPullUp.setValue(engineConfiguration->boardSelTachPullUp);
 	alphaHall1PullUp.setValue(engineConfiguration->boardEnHall1PullUp);
@@ -212,5 +212,9 @@ Gpio* getBoardMetaOutputs() {
 
 void setup_custom_board_overrides() {
 	custom_board_InitHardware = alphax_silver_revA_boardInitHardware;
-}
+	custom_board_DefaultConfiguration = alphax_silver_revA_boardDefaultConfiguration;
+	custom_board_ConfigOverrides = alphax_silver_revA_boardConfigOverrides;
 
+	custom_board_OnConfigurationChange = customBoardOnConfigurationChange;
+	custom_board_hackHellenBoardId = pcaHackHellenBoardId;
+}

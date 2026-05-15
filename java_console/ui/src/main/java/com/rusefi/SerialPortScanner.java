@@ -1,15 +1,14 @@
 package com.rusefi;
 
 import com.devexperts.logging.Logging;
-import com.rusefi.binaryprotocol.IncomingDataBuffer;
-import com.rusefi.binaryprotocol.IoHelper;
-import com.rusefi.config.generated.Integration;
 import com.rusefi.io.IoStream;
 import com.rusefi.io.LinkManager;
 import com.rusefi.io.serial.BufferedSerialIoStream;
 import com.rusefi.io.tcp.TcpConnector;
 import com.rusefi.maintenance.*;
 import com.rusefi.io.UpdateOperationCallbacks;
+import com.rusefi.updater.OpenbltDetectorStrategy;
+import com.rusefi.util.CompatibilityOptional;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -65,6 +64,10 @@ public enum SerialPortScanner {
             startTimer();
     }
 
+    // Number of ECU-detection attempts before giving up and labelling a port Unknown.
+    // A freshly rebooted or reconnected ECU may not respond on the first try.
+    private static final int DETECT_MAX_ATTEMPTS = 3;
+
     private static PortResult inspectPort(String serialPort) {
         log.info("Determining type of serial port: " + serialPort);
 
@@ -72,24 +75,34 @@ public enum SerialPortScanner {
         log.info("Port " + serialPort + (isOpenblt ? " looks like" : " does not look like") + " an OpenBLT bootloader");
         if (isOpenblt) {
             return new PortResult(serialPort, SerialPortType.OpenBlt);
-        } else {
-            // See if this looks like an ECU
+        }
+
+        for (int attempt = 1; attempt <= DETECT_MAX_ATTEMPTS; attempt++) {
             final Optional<CalibrationsInfo> ecuCalibrations = getEcuCalibrations(serialPort);
             final boolean isEcu = ecuCalibrations.isPresent();
-            log.info("Port " + serialPort + (isEcu ? " looks like" : " does not look like") + " an ECU");
+            log.info("Port " + serialPort + " ECU detection attempt " + attempt + "/" + DETECT_MAX_ATTEMPTS
+                + ": " + (isEcu ? "found" : "not found"));
             if (isEcu) {
-                final boolean ecuHasOpenblt = ecuHasOpenblt(serialPort);
-                log.info("ECU at " + serialPort + (ecuHasOpenblt ? " has" : " does not have") + " an OpenBLT bootloader");
+                final boolean hasOpenblt = ecuHasOpenblt(serialPort);
+                log.info("ECU at " + serialPort + (hasOpenblt ? " has" : " does not have") + " an OpenBLT bootloader");
                 return new PortResult(
                     serialPort,
-                    ecuHasOpenblt ? SerialPortType.EcuWithOpenblt : SerialPortType.Ecu,
+                    hasOpenblt ? SerialPortType.EcuWithOpenblt : SerialPortType.Ecu,
                     ecuCalibrations.get()
                 );
-            } else {
-                // Dunno what this is, leave it in the list anyway
-                return new PortResult(serialPort, SerialPortType.Unknown);
+            }
+            if (attempt < DETECT_MAX_ATTEMPTS) {
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
             }
         }
+
+        log.info("Port " + serialPort + " does not look like an ECU after " + DETECT_MAX_ATTEMPTS + " attempts");
+        return new PortResult(serialPort, SerialPortType.Unknown);
     }
 
     private static List<PortResult> inspectPorts(final List<String> ports) {
@@ -139,7 +152,7 @@ public enum SerialPortScanner {
         // Give everyone a chance to finish
         try {
             // todo: see if everyone has already finished - make this sleep conditional!
-            // todo: lowe this timeout?
+            // todo: lower this timeout?
             Thread.sleep(5000);
         } catch (InterruptedException e) {
             // We got interrupted because the last port got found, nothing to do
@@ -147,10 +160,7 @@ public enum SerialPortScanner {
 
         // Interrupt all threads under lock to ensure no more objects are added to results
         synchronized (resultsLock) {
-            for (Thread t : threads) {
-                log.trace(String.format("Interrupting thread `%s`...", t.getName()));
-                t.interrupt();
-            }
+            ScannerHelper.interruptThreads(threads);
         }
 
         // Now check that we got everything - if any timed out, register them as unknown
@@ -175,7 +185,12 @@ public enum SerialPortScanner {
         boolean stLinkConnected;
         boolean PCANConnected;
 
-        final Set<String> serialPorts = LinkManager.getCommPorts();
+        // ttyS* are legacy motherboard UARTs on Linux — never a rusEFI ECU and they stall
+        // the binary protocol handshake for seconds.  Drop them before the scan pipeline.
+        final Set<String> serialPorts = LinkManager.getCommPorts().stream()
+            .filter(name -> !name.startsWith("ttyS"))
+            .collect(Collectors.toCollection(TreeSet::new));
+        log.info("getCommPorts (filtered): " + serialPorts);
 
         List<String> portsToInspect = new ArrayList<>();
 
@@ -187,19 +202,42 @@ public enum SerialPortScanner {
 
         for (PortResult p : inspectPorts(portsToInspect)) {
             log.info("Port " + p.port + " detected as: " + p.type.friendlyString);
-
             ports.add(p);
-            portCache.put(p);
+            // Do not cache Unknown — keep the port uninspected so the next scan cycle retries
+            // detection automatically without waiting for the port to disappear and reappear.
+            if (p.type != SerialPortType.Unknown) {
+                portCache.put(p);
+            }
         }
 
-        portCache.retainAll(serialPorts);
+        final Collection<String> tcpPorts = includeSlowLookup
+            ? TcpConnector.getAvailablePorts()
+            : Collections.emptyList();
+
+        final Set<String> livePortNames = new HashSet<>(serialPorts);
+        livePortNames.addAll(tcpPorts);
+        portCache.retainAll(livePortNames);
 
         // Sort ports by their type to put your ECU at the top
         ports.sort(Comparator.comparingInt(a -> a.type.sortOrder));
 
         if (includeSlowLookup) {
-            for (String tcpPort : TcpConnector.getAvailablePorts()) {
-                ports.add(new PortResult(tcpPort, SerialPortType.Ecu));
+            for (String tcpPort : tcpPorts) {
+                final Optional<PortResult> cachedPort = portCache.get(tcpPort);
+                if (cachedPort.isPresent()) {
+                    ports.add(cachedPort.get());
+                } else {
+                    final Optional<CalibrationsInfo> tcpCalibrations = getEcuCalibrations(tcpPort);
+                    final PortResult tcpResult = tcpCalibrations
+                        .map(c -> new PortResult(tcpPort, SerialPortType.Ecu, c))
+                        .orElseGet(() -> new PortResult(tcpPort, SerialPortType.Unknown));
+                    ports.add(tcpResult);
+
+                    // cache port + calibrations
+                    if (tcpCalibrations.isPresent()) {
+                        portCache.put(tcpResult);
+                    }
+                }
             }
             dfuConnected = DfuFlasher.detectSTM32BootloaderDriverState(UpdateOperationCallbacks.DUMMY);
             stLinkConnected = StLinkFlasher.detectStLink(UpdateOperationCallbacks.DUMMY);
@@ -209,11 +247,14 @@ public enum SerialPortScanner {
             stLinkConnected = false;
             PCANConnected = false;
         }
+/*
         if (PCANConnected)
             ports.add(new PortResult(LinkManager.PCAN, SerialPortType.CAN));
+ */
+/*
         if (SHOW_SOCKETCAN)
             ports.add(new PortResult(LinkManager.SOCKET_CAN, SerialPortType.CAN));
-
+*/
         boolean isListUpdated;
         AvailableHardware currentHardware = new AvailableHardware(ports, dfuConnected, stLinkConnected, PCANConnected);
         synchronized (lock) {
@@ -234,6 +275,10 @@ public enum SerialPortScanner {
         portsScanner.stop();
     }
 
+    public void restartTimer() {
+        portsScanner.restart();
+    }
+
     public interface Listener {
         void onChange(AvailableHardware currentHardware);
     }
@@ -252,16 +297,7 @@ public enum SerialPortScanner {
                 return false;
             }
 
-            stream.sendPacket(new byte[]{(byte) Integration.TS_QUERY_BOOTLOADER});
-
-            byte[] response = stream.getDataBuffer().getPacket(500, "ecuHasOpenblt");
-            if (!IoHelper.checkResponseCode(response, (byte) Integration.TS_RESPONSE_OK)) {
-                // ECU didn't understand request, bootloader certainly not supported
-                return false;
-            }
-
-            // Data byte indicates bootloader type
-            return response[1] == Integration.TS_QUERY_BOOTLOADER_OPENBLT;
+            return OpenbltDetectorStrategy.streamHasOpenBlt(stream);
         } catch (Exception e) {
             return false;
         }
@@ -269,34 +305,7 @@ public enum SerialPortScanner {
 
     private static boolean isPortOpenblt(String port) {
         try (IoStream stream = BufferedSerialIoStream.openPort(port)) {
-            if (stream == null) {
-                return false;
-            }
-
-            byte[] request = new byte[3];
-            request[0] = 2; // packet length
-            request[1] = (byte) 0xff; // XCPLOADER_CMD_CONNECT
-            request[2] = 0; // connectMode
-
-            stream.write(request);
-
-            IncomingDataBuffer idb = stream.getDataBuffer();
-
-            byte responseLength = idb.readByte(250);
-
-            // Invalid length, ignore
-            if (responseLength != 8) {
-                return false;
-            }
-
-            // Read length worth of bytes
-            byte[] response = new byte[responseLength];
-            idb.waitForBytes(100, "isPortOpenblt", System.currentTimeMillis(), responseLength);
-            idb.read(response);
-
-            // Response packet should start with FF
-            // Not much else to check, as the rest of the response is protocol settings from the device.
-            return response[0] == (byte) 0xFF;
+            return OpenbltDetectorStrategy.isPortOpenblt(stream);
         } catch (IOException e) {
             return false;
         }
@@ -308,5 +317,26 @@ public enum SerialPortScanner {
 
     public CountDownLatch suspend() {
         return portsScanner.suspend();
+    }
+
+    /**
+     * Pre-populate the port cache with a known result so the scanner does not
+     * re-inspect an actively-used port on the next scan cycle.  Call this
+     * before resuming the scanner after a reconnect to prevent the scanner from
+     * opening the port and competing with an already-established BinaryProtocol
+     * connection on the same serial stream.
+     */
+    public void cachePort(PortResult port) {
+        portCache.put(port);
+    }
+
+    /**
+     * Remove a port from the cache so the scanner re-inspects it on the next
+     * scan cycle.  Call this before sending a reboot-to-OpenBLT command so that
+     * the scanner does not keep reporting the port as {@code EcuWithOpenblt}
+     * after the ECU has already transitioned to OpenBLT mode.
+     */
+    public void invalidatePort(String portName) {
+        portCache.invalidate(portName);
     }
 }

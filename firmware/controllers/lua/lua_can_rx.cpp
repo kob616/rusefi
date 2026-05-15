@@ -20,7 +20,11 @@ struct CanFrameData {
 };
 
 #ifndef LUA_canFrameCount
+#if defined(STM32F7) || defined(STM32H7)
+#define LUA_canFrameCount 256
+#else
 #define LUA_canFrameCount 32
+#endif
 #endif
 
 static CanFrameData canFrames[LUA_canFrameCount];
@@ -110,7 +114,9 @@ static void handleCanFrame(LuaHandle& ls, CanFrameData* data) {
 
   if (engineConfiguration->luaCanRxWorkaround) {
     // todo: https://github.com/rusefi/rusefi/issues/6041
-    lua_getglobal(ls, "global_can_data");
+    if (lua_getglobal(ls, "global_can_data") != LUA_TTABLE) {
+      criticalError("luaCanRxWorkaround without global_can_data");
+    }
   } else {
   	// Build table for data, custom implementation without explicit GC but still garbage
 	  lua_createtable_noGC(ls, dlc);

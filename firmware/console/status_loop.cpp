@@ -40,6 +40,7 @@
 #include "speed_density.h"
 
 #include "tunerstudio.h"
+#include "tunerstudio_calibration_channel.h"
 #include "fuel_math.h"
 #include "main_trigger_callback.h"
 #include "spark_logic.h"
@@ -245,8 +246,6 @@ static bool isTriggerErrorNow() {
 #endif /* EFI_ENGINE_CONTROL && EFI_SHAFT_POSITION_INPUT */
 }
 
-extern bool consoleByteArrived;
-
 class CommunicationBlinkingTask : public PeriodicTimerController {
 
 	int getPeriodMs() override {
@@ -291,7 +290,7 @@ class CommunicationBlinkingTask : public PeriodicTimerController {
 				// differentiates software firmware error from critical interrupt error with CPU halt.
 				offTimeMs = 50;
 				onTimeMs = 450;
-			} else if (consoleByteArrived) {
+			} else if (TunerstudioThread::isAnyConsoleActive()) {
 				offTimeMs = 100;
 				onTimeMs = 33;
 #if EFI_CONFIGURATION_STORAGE
@@ -336,7 +335,7 @@ static CommunicationBlinkingTask communicationsBlinkingTask;
  * For example http://rusefi.com/forum/viewtopic.php?f=5&t=1085
  */
 static int packEngineMode() {
-	return (engineConfiguration->fuelAlgorithm << 4) +
+	return (Enum2Underlying(engineConfiguration->fuelAlgorithm) << 4) +
 			(engineConfiguration->injectionMode << 2) +
 			engineConfiguration->ignitionMode;
 }
@@ -375,7 +374,7 @@ void updateUnfilteredRawPedal();
 static void updateThrottles() {
 	SensorResult tps1 = Sensor::get(SensorType::Tps1);
 	engine->outputChannels.TPSValue = tps1.value_or(0);
-	engine->outputChannels.isTpsError = !tps1.Valid;
+	engine->outputChannels.isTpsError = Sensor::hasSensor(SensorType::Tps1) ? !tps1.Valid : false;
 	engine->outputChannels.tpsADC = convertVoltageTo10bitADC(Sensor::getRaw(SensorType::Tps1Primary));
 
 	SensorResult tps2 = Sensor::get(SensorType::Tps2);
@@ -386,7 +385,7 @@ static void updateThrottles() {
 	SensorResult pedal = Sensor::get(SensorType::AcceleratorPedal);
 	engine->outputChannels.throttlePedalPosition = pedal.value_or(0);
 	// Only report fail if you have one (many people don't)
-	engine->outputChannels.isPedalError = !pedal.Valid;
+	engine->outputChannels.isPedalError = Sensor::hasSensor(SensorType::AcceleratorPedal) ? !pedal.Valid : false;
 
 	// TPS 1 pri/sec split
 	engine->outputChannels.tps1Split = Sensor::getOrZero(SensorType::Tps1Primary) - Sensor::getOrZero(SensorType::Tps1Secondary);
@@ -396,18 +395,20 @@ static void updateThrottles() {
 	engine->outputChannels.tps12Split = Sensor::getOrZero(SensorType::Tps1) - Sensor::getOrZero(SensorType::Tps2);
 	// Pedal pri/sec split
 	engine->outputChannels.accPedalSplit = Sensor::getOrZero(SensorType::AcceleratorPedalPrimary) - Sensor::getOrZero(SensorType::AcceleratorPedalSecondary);
+
+	engine->outputChannels.accPedalUnfiltered = Sensor::getOrZero(SensorType::AcceleratorPedalUnfiltered);
 	updateUnfilteredRawPedal();
 }
 
 static void updateLambda() {
-	float lambdaValue = Sensor::getOrZero(SensorType::Lambda1);
+	float lambdaValue = Sensor::getOrDefault(SensorType::Lambda1, 0.5 / STOICH_RATIO, 0.0 / STOICH_RATIO, 30.5 / STOICH_RATIO);
 	engine->outputChannels.lambdaValue = lambdaValue;
 	engine->outputChannels.AFRValue = lambdaValue * engine->fuelComputer.stoichiometricRatio;
 	// TODO: this can be calculated on PC side!
 	engine->outputChannels.afrGasolineScale = lambdaValue * STOICH_RATIO;
 	engine->outputChannels.SmoothedAFRValue = Sensor::getOrZero(SensorType::SmoothedLambda1);
 
-	float lambda2Value = Sensor::getOrZero(SensorType::Lambda2);
+	float lambda2Value = Sensor::getOrDefault(SensorType::Lambda2, 0.5 / STOICH_RATIO, 0.0 / STOICH_RATIO, 30.5 / STOICH_RATIO);
 	engine->outputChannels.lambdaValue2 = lambda2Value;
 	engine->outputChannels.AFRValue2 = lambda2Value * engine->fuelComputer.stoichiometricRatio;
 	// TODO: this can be calculated on PC side!
@@ -497,11 +498,6 @@ static void updateRawSensors() {
 	engine->outputChannels.rawAuxAnalog3 = Sensor::getRaw(SensorType::AuxAnalog3);
 	engine->outputChannels.rawAuxAnalog4 = Sensor::getRaw(SensorType::AuxAnalog4);
 
-#if EFI_PROD_CODE
-extern int flexCallbackCounter;
-	engine->outputChannels.rawFlexFreq = flexCallbackCounter;
-#endif // EFI_PROD_CODE
-
   for (size_t i = 0;i<LUA_GAUGE_COUNT;i++) {
 	  engine->outputChannels.luaGauges[i] = Sensor::getOrZero(luaGaugeTypes[i]);
   }
@@ -509,12 +505,12 @@ extern int flexCallbackCounter;
 	for (int i = 0; i < LUA_ANALOG_INPUT_COUNT; i++) {
 		adc_channel_e channel = engineConfiguration->auxAnalogInputs[i];
 		if (isAdcChannelValid(channel)) {
-			engine->outputChannels.rawAnalogInput[i] = adcGetScaledVoltage("raw aux", channel);
+			engine->outputChannels.rawAnalogInput[i] = adcGetScaledVoltage("raw aux", channel).value_or(0);
 		}
 	}
 
 	// TODO: transition AFR to new sensor model
-	engine->outputChannels.rawAfr = (engineConfiguration->afr.hwChannel == EFI_ADC_NONE) ? 0 : adcGetScaledVoltage("ego", engineConfiguration->afr.hwChannel);
+	engine->outputChannels.rawAfr = (engineConfiguration->afr.hwChannel == EFI_ADC_NONE) ? 0 : adcGetScaledVoltage("ego", engineConfiguration->afr.hwChannel).value_or(0);
 }
 static void updatePressures() {
 	engine->outputChannels.baroPressure = Sensor::getOrZero(SensorType::BarometricPressure);
@@ -549,6 +545,8 @@ static void updateMiscSensors() {
 
 #if	HAL_USE_ADC
 	engine->outputChannels.internalMcuTemperature = getMCUInternalTemperature();
+	engine->outputChannels.internalVref = getMCUVref();
+	engine->outputChannels.internalVbat = getMcuVbatVoltage();
 #endif /* HAL_USE_ADC */
 }
 
@@ -620,36 +618,12 @@ static void updateFlags() {
 #endif
 }
 
-static void updateWarningCodes() {
-	TunerStudioOutputChannels *tsOutputChannels = &engine->outputChannels;
-
-	tsOutputChannels->warningCounter = engine->engineState.warnings.warningCounter;
-	tsOutputChannels->lastErrorCode = static_cast<uint16_t>(engine->engineState.warnings.lastErrorCode);
-
-	size_t i = 0;
-	for (size_t j = 0; j < engine->engineState.warnings.recentWarnings.getCount(); j++) {
-		warning_t& warn = engine->engineState.warnings.recentWarnings.get(j);
-		// if still active
-		if ((warn.Code != ObdCode::None) &&
-			(!warn.LastTriggered.hasElapsedSec(maxI(3, engineConfiguration->warningPeriod)))) {
-			tsOutputChannels->recentErrorCode[i] = static_cast<uint16_t>(warn.Code);
-			i++;
-			if (i >= efi::size(tsOutputChannels->recentErrorCode))
-				break;
-		}
-	}
-	// reset rest
-	for ( ; i < efi::size(tsOutputChannels->recentErrorCode); i++) {
-		tsOutputChannels->recentErrorCode[i] = 0;
-	}
-}
-
 // sensor state for EFI Analytics Tuner Studio
 // todo: the 'let's copy internal state for external consumers' approach is DEPRECATED
 // As of 2022 it's preferred to leverage LiveData where all state is exposed
 // this method is invoked ONLY if we SD card log or have serial connection with some frontend app
 void updateTunerStudioState() {
-	TunerStudioOutputChannels *tsOutputChannels = &engine->outputChannels;
+	output_channels_s *tsOutputChannels = &engine->outputChannels;
 #if EFI_USB_SERIAL
   // pretty much SD card logs know if specifically USB serial is active
 	engine->outputChannels.isUsbConnected =	is_usb_serial_ready();
@@ -698,6 +672,8 @@ void updateTunerStudioState() {
 	updateFuelInfo();
 	updateIgnition(rpm);
 	updateFlags();
+	// update calibration channel, reset to None state after timeout
+	tsCalibrationIsIdle();
 
 	// Output both the estimated air flow, and measured air flow (if available)
 	tsOutputChannels->mafMeasured = Sensor::getOrZero(SensorType::Maf);
@@ -733,7 +709,7 @@ void updateTunerStudioState() {
 	extern FrequencySensor vehicleSpeedSensor;
 	tsOutputChannels->vssEdgeCounter = vehicleSpeedSensor.eventCounter;
 
-	tsOutputChannels->hasCriticalError = hasFirmwareError() || hasConfigError();
+	tsOutputChannels->hasCriticalError = hasFirmwareError() || hasConfigError() || engine->engineState.warnings.hasWarningMessage();
 	tsOutputChannels->hasFaultReportFile = hasErrorReportFile();
 	tsOutputChannels->triggerPageRefreshFlag = needToTriggerTsRefresh() || ltftNeedVeRefresh();
 
@@ -743,7 +719,7 @@ void updateTunerStudioState() {
 
 	tsOutputChannels->checkEngine = hasErrorCodes();
 
-	updateWarningCodes();
+	engine->engineState.warnings.refreshTs();
 
 	tsOutputChannels->starterState = enginePins.starterControl.getLogicValue();
 	tsOutputChannels->starterRelayDisable = enginePins.starterRelayDisable.getLogicValue();

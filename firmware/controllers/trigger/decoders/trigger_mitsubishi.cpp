@@ -43,18 +43,30 @@ void initializeMitsubishi4gSymmetricalCrank(TriggerWaveform *s) {
 void initializeVvt6G72(TriggerWaveform *s) {
 	s->initialize(FOUR_STROKE_CAM_SENSOR, SyncEdge::Both);
 
-    s->setTriggerSynchronizationGap3(0, 0.3f, 0.95f);
-    s->setTriggerSynchronizationGap3(1, 0.5f, 0.7f);
-    s->setTriggerSynchronizationGap3(2, 0.55f, 1.1f);
+    //happy ratio 0.548387 @ 0
+    //happy ratio 0.941176 @ 1
+    //happy ratio 0.500000 @ 2
+    //happy ratio 3.750002 @ 3
+    //happy ratio 0.266667 @ 4
+    //happy ratio 3.250000 @ 5
+    //happy ratio 0.307692 @ 6
+    //happy ratio 3.875000 @ 7
 
-  s->addEvent360(25.548325, TriggerValue::RISE);
-  s->addEvent360(87.945659, TriggerValue::FALL);
-  s->addEvent360(117.753483, TriggerValue::RISE);
-  s->addEvent360(178.618554, TriggerValue::FALL);
-  s->addEvent360(204.233855, TriggerValue::RISE);
-  s->addEvent360(266.592641, TriggerValue::FALL);
-  s->addEvent360(326.382236, TriggerValue::RISE);
-  s->addEvent360(360.000000, TriggerValue::FALL);
+    // real working ranges for all of the engine states
+    s->setTriggerSynchronizationGap3(0, 1.3, 3.2);
+    s->setTriggerSynchronizationGap3(1, 0.3, 0.66);
+    s->setTriggerSynchronizationGap3(2, 1.3, 3.2);
+    s->setTriggerSynchronizationGap3(3, 0.3, 0.66);
+    s->setTriggerSynchronizationGap3(4, 1.3, 3.2);
+
+    s->addEvent360(52.5, TriggerValue::FALL);
+    s->addEvent360(82.5, TriggerValue::RISE);
+    s->addEvent360(112.5, TriggerValue::FALL);
+    s->addEvent360(177.5, TriggerValue::RISE);
+    s->addEvent360(207.5, TriggerValue::FALL);
+    s->addEvent360(262.5, TriggerValue::RISE);
+    s->addEvent360(292.5, TriggerValue::FALL);
+    s->addEvent360(360, TriggerValue::RISE);
 }
 
 void initializeMitsubishi4g63Cam(TriggerWaveform *s) {
@@ -78,35 +90,70 @@ void initializeMitsubishi4g63Cam(TriggerWaveform *s) {
 void initialize36_2_1_1(TriggerWaveform *s) {
 	s->initialize(FOUR_STROKE_CRANK_SENSOR, SyncEdge::RiseOnly);
 	s->tdcPosition = 90;
-	int totalTeethCount = 36;
 
-	float engineCycle = FOUR_STROKE_ENGINE_CYCLE;
-	float toothWidth = 0.5;
+  const float WIDE_TOOTH_WIDTH  = 8.5;
+  const float WIDE_TOOTH_OFFSET = 6.5;
+  const float TOOTH_WIDTH = 5.0;
+  const float GAP_WIDTH   = 5.0;
 
-	float oneTooth = 720 / totalTeethCount;
+  float offset = WIDE_TOOTH_WIDTH;
 
-	float offset = (36 - 11 - 12 - 11) * oneTooth;
+  // First tooth after the gap is wide
+  // we can't have an event at 0, so we wrap the first rise event around to the end of the cycle
+  s->addEvent360(offset, TriggerValue::FALL);
+  offset += GAP_WIDTH;
 
-	addSkippedToothTriggerEvents(TriggerWheel::T_PRIMARY, s, totalTeethCount, 0, toothWidth, /*offset*/offset, engineCycle,
-			NO_LEFT_FILTER, offset + 11 * oneTooth + 1);
+  // Then we have 10 regular teeth
+  for (int i = 0; i < 10; i++) {
+    s->addEvent360(offset, TriggerValue::RISE);
+    s->addEvent360(offset + TOOTH_WIDTH, TriggerValue::FALL);
+    offset += TOOTH_WIDTH + GAP_WIDTH;
+  }
 
-	offset += (11 + 1) * oneTooth;
+  // Then a gap followed by a wide tooth
+  offset += WIDE_TOOTH_OFFSET;
+  s->addEvent360(offset, TriggerValue::RISE);
+  offset += WIDE_TOOTH_WIDTH;
+  s->addEvent360(offset, TriggerValue::FALL);
+  offset += GAP_WIDTH;
 
-	addSkippedToothTriggerEvents(TriggerWheel::T_PRIMARY, s, totalTeethCount, 0, toothWidth, /*offset*/offset, engineCycle,
-			NO_LEFT_FILTER, offset + 11 * oneTooth + 1);
+  for (int i = 0; i < 10; i++) {
+    s->addEvent360(offset, TriggerValue::RISE);
+    s->addEvent360(offset + TOOTH_WIDTH, TriggerValue::FALL);
+    offset += TOOTH_WIDTH + GAP_WIDTH;
+  }
 
+  // Then another gap followed by a wide tooth
+  offset += WIDE_TOOTH_OFFSET;
+  s->addEvent360(offset, TriggerValue::RISE);
+  offset += WIDE_TOOTH_WIDTH;
+  s->addEvent360(offset, TriggerValue::FALL);
+  offset += GAP_WIDTH;
 
-	offset += (11 + 1) * oneTooth;
+  for (int i = 0; i < 9; i++) {
+    s->addEvent360(offset, TriggerValue::RISE);
+    s->addEvent360(offset + TOOTH_WIDTH, TriggerValue::FALL);
+    offset += TOOTH_WIDTH + GAP_WIDTH;
+  }
 
-	addSkippedToothTriggerEvents(TriggerWheel::T_PRIMARY, s, totalTeethCount, 0, toothWidth, /*offset*/offset, engineCycle,
-			NO_LEFT_FILTER, offset + 10 * oneTooth + 1);
+  offset += TOOTH_WIDTH + GAP_WIDTH + WIDE_TOOTH_OFFSET; // gap before the last tooth
+  // Finally, the last tooth is wide and we wrap it around to the beginning of the cycle
+  // offset should be exactly 360 at this point
+  s->addEvent360(offset, TriggerValue::RISE);
 
-	s->setTriggerSynchronizationGap(3);
-	s->setSecondTriggerSynchronizationGap(1); // redundancy
+  // Looking at real captures:
+  // wide gap normal   1.0 - 2.6 - 0.5
+  // wide gap crank    1.0 - 1.7 - 0.4
+  // narrow gap normal 1.0 - 1.65- 0.8
+  // narrow gap crank  0.8 - 1.0 - 0.7
+
+  s->setTriggerSynchronizationGap3(0, 0.3, 0.6);
+  s->setTriggerSynchronizationGap3(1, 1.7, 3.6);
+  s->setTriggerSynchronizationGap3(2, 0.8, 1.2);
 }
 
 // Mitsubishi 4B11
-// https://github.com/rusefi/rusefi/wiki/All-Supported-Triggers#36-2-1
+// https://wiki.rusefi.com/All-Supported-Triggers#36-2-1
 void initialize36_2_1(TriggerWaveform *s) {
 	s->initialize(FOUR_STROKE_CRANK_SENSOR, SyncEdge::RiseOnly);
 	s->tdcPosition = 90;
@@ -175,4 +222,8 @@ void initializeMitsubishi4G69Cam(TriggerWaveform *s) {
 
     s->setTriggerSynchronizationGap(1);
    	s->setSecondTriggerSynchronizationGap(4.5);
+}
+
+void initializeMitsubishi6G75Cam(TriggerWaveform *s) {
+	// todo: implement me!
 }

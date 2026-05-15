@@ -7,11 +7,15 @@
 #define TIMER_CLOCK				(CORE_CLOCK / 4)
 #define TicksToUs(ticks)		((float)(ticks) * 1000.0 * 1000.0 / TIMER_CLOCK)
 
+#ifndef SENT_STATISTIC_COUNTERS
+#define SENT_STATISTIC_COUNTERS 0
+#endif
+
 static int sentTest_feedWithFile(sent_channel &channel, const char *file)
 {
 	int msgCount = 0;
 	int lineCount = 0;
-	int printDebug = 0;
+	int printDebug = SENT_STATISTIC_COUNTERS;
 	CsvReader reader(1, 0);
 
 	reader.open(file);
@@ -51,7 +55,9 @@ static int sentTest_feedWithFile(sent_channel &channel, const char *file)
 
 			ret = channel.GetSignals(&stat, &sig0, &sig1);
 			if (ret == 0) {
+#if 0
 				printf("%d: SENT status 0x%01x, signals: 0x%03x, 0x%03x: %d\n", msgCount, stat, sig0, sig1, ret);
+#endif
 				msgCount++;
 			}
 		}
@@ -156,6 +162,46 @@ TEST(sent, testFuelPressure) {
 TEST(sent, testVagMap) {
 	static sent_channel channel;
 	int lineCount = sentTest_feedWithFile(channel, "tests/sent/resources/vag_04e.906.051.csv");
+	ASSERT_TRUE(lineCount > 100);
+	bool isError = channel.GetMsg(nullptr) != 0;
+	ASSERT_FALSE(isError);
+	#if SENT_STATISTIC_COUNTERS
+		sent_channel_stat &statistic = channel.statistic;
+		/* TODO: bad captured data or real problem? */
+		ASSERT_TRUE(statistic.RestartCnt <= 1u);
+	#endif
+}
+
+// Mercedes A 000 905 31 01 EGT sensor
+TEST(sent, testMbEgt) {
+	static sent_channel channel;
+	int lineCount = sentTest_feedWithFile(channel, "tests/sent/resources/mb_A_000_905_31_01-ambient.csv");
+	ASSERT_TRUE(lineCount > 100);
+	bool isError = channel.GetMsg(nullptr) != 0;
+	ASSERT_FALSE(isError);
+	#if SENT_STATISTIC_COUNTERS
+		sent_channel_stat &statistic = channel.statistic;
+		/* TODO: bad captured data or real problem? */
+		ASSERT_TRUE(statistic.RestartCnt <= 1u);
+	#endif
+}
+
+TEST(sent, testMbEgtCold) {
+	static sent_channel channel;
+	int lineCount = sentTest_feedWithFile(channel, "tests/sent/resources/mb_A_000_905_31_01-water-ice.csv");
+	ASSERT_TRUE(lineCount > 100);
+	bool isError = channel.GetMsg(nullptr) != 0;
+	ASSERT_FALSE(isError);
+	#if SENT_STATISTIC_COUNTERS
+		sent_channel_stat &statistic = channel.statistic;
+		/* TODO: bad captured data or real problem? */
+		ASSERT_TRUE(statistic.RestartCnt <= 1u);
+	#endif
+}
+
+TEST(sent, testMbEgtHot) {
+	static sent_channel channel;
+	int lineCount = sentTest_feedWithFile(channel, "tests/sent/resources/mb_A_000_905_31_01-boiling-water.csv");
 	ASSERT_TRUE(lineCount > 100);
 	bool isError = channel.GetMsg(nullptr) != 0;
 	ASSERT_FALSE(isError);

@@ -65,12 +65,16 @@ PUBLIC_API_WEAK trigger_type_e getCustomVvtTriggerType(vvt_mode_e vvtMode) {
 		return trigger_type_e::TT_HALF_MOON; // we have to return something for the sake of -Werror=return-type
 }
 
+// todo: move this method from engine.cpp already?
 /**
  * VVT decoding delegates to universal trigger decoder. Here we map vvt_mode_e into corresponding trigger_type_e
  */
 trigger_type_e getVvtTriggerType(vvt_mode_e vvtMode) {
 	switch (vvtMode) {
+	case VVT_CUSTOM_1:
+	case VVT_CUSTOM_2:
 	case VVT_INACTIVE:
+	  // hold on, what? 'VVT_INACTIVE' means TT_HALF_MOON?!
 		return trigger_type_e::TT_HALF_MOON;
 	case VVT_TOYOTA_3_TOOTH:
 		return trigger_type_e::TT_VVT_TOYOTA_3_TOOTH;
@@ -114,11 +118,13 @@ trigger_type_e getVvtTriggerType(vvt_mode_e vvtMode) {
 		return trigger_type_e::TT_TOYOTA_3_TOOTH_UZ;
 	case VVT_NISSAN_MR:
 		return trigger_type_e::TT_NISSAN_MR18_CAM_VVT;
-	case VVT_UNUSED_17:
+	case VVT_BMW_N63TU:
 	case VVT_MITSUBISHI_4G63:
 		return trigger_type_e::TT_MITSU_4G63_CAM;
 	case VVT_HR12DDR_IN:
 	    return trigger_type_e::TT_NISSAN_HR_CAM_IN;
+	case VVT_SUBARU_7TOOTH:
+			return trigger_type_e::TT_VVT_SUBARU_7_WITHOUT_6;
 	default:
 	  return getCustomVvtTriggerType(vvtMode);
 	}
@@ -137,9 +143,18 @@ void Engine::updateTriggerConfiguration() {
 #endif /* EFI_ENGINE_CONTROL && EFI_SHAFT_POSITION_INPUT */
 }
 
-PUBLIC_API_WEAK void boardPeriodicSlowCallback() { }
+#include "board_overrides.h"
 
-PUBLIC_API_WEAK void boardPeriodicFastCallback() { }
+std::optional<setup_custom_board_overrides_type> custom_board_periodicSlowCallback;
+std::optional<setup_custom_board_overrides_type> custom_board_periodicFastCallback;
+
+void boardPeriodicSlowCallback() {
+  // placeholder to force upgrade
+}
+
+void boardPeriodicFastCallback() {
+  // placeholder to force upgrade
+}
 
 void Engine::periodicSlowCallback() {
 	ScopePerf perf(PE::EnginePeriodicSlowCallback);
@@ -176,6 +191,16 @@ void Engine::periodicSlowCallback() {
 	updateDynoView();
 #endif
 
+	// TODO: move to sensor_checker.cpp?
+	if ((engine->rpmCalculator.isCranking()) && (Sensor::getOrZero(SensorType::BatteryVoltage) < 7)) {
+		// undervoltage crancking!
+		if (getEngineState()->undervoltageCrankingTimer.getElapsedSeconds() > 1) {
+			warningTsReport(ObdCode::OBD_System_Voltage_Low, "Cranking on low battery!");
+		}
+	} else {
+		getEngineState()->undervoltageCrankingTimer.reset();
+	}
+
 	slowCallBackWasInvoked = true;
 
 #if EFI_PROD_CODE
@@ -183,6 +208,7 @@ void Engine::periodicSlowCallback() {
 	baroLps25Update();
 #endif // EFI_PROD_CODE
   boardPeriodicSlowCallback();
+  call_board_override(custom_board_periodicSlowCallback);
 }
 
 /**
@@ -265,9 +291,7 @@ extern bool kAcRequestState;
 }
 
 Engine::Engine() {
-	// Everything else has default initializers setup in generated file
-	engineState.lua.fuelMult = 1;
-	ignitionState.luaTimingMult = 1;
+	resetLua();
 }
 
 int Engine::getGlobalConfigurationVersion() const {
@@ -290,6 +314,7 @@ void Engine::resetLua() {
 	engineState.lua.luaDisableEtb = false;
 	engineState.lua.luaIgnCut = false;
 	engineState.lua.luaFuelCut = false;
+	engineState.lua.engineTorque = NAN;
 	engineState.lua.disableDecelerationFuelCutOff = false;
 #if EFI_BOOST_CONTROL
 	module<BoostController>().unmock().resetLua();
@@ -317,6 +342,8 @@ void Engine::preCalculate() {
 
 #if EFI_SHAFT_POSITION_INPUT
 void Engine::OnTriggerStateProperState(efitick_t nowNt, size_t triggerStateIndex) {
+	UNUSED(triggerStateIndex);
+
 	rpmCalculator.setSpinningUp(nowNt);
 }
 
@@ -408,8 +435,9 @@ static void assertTimeIsLinear() {
 
 void Engine::efiWatchdog() {
     assertTimeIsLinear();
-	if (isRunningPwmTest)
+	if (isRunningPwmTest) {
 		return;
+	}
 
 #if EFI_ENGINE_CONTROL && EFI_SHAFT_POSITION_INPUT
 	if (module<PrimeController>()->isPriming() || triggerCentral.engineMovedRecently()) {
@@ -518,15 +546,6 @@ bool Engine::isInShutdownMode() const {
 	return false;
 }
 
-bool Engine::isMainRelayEnabled() const {
-#if EFI_MAIN_RELAY_CONTROL
-	return enginePins.mainRelay.getLogicValue();
-#else
-	// if no main relay control, we assume it's always turned on
-	return true;
-#endif /* EFI_MAIN_RELAY_CONTROL */
-}
-
 injection_mode_e getCurrentInjectionMode() {
 	return getEngineRotationState()->isCranking() ? engineConfiguration->crankingInjectionMode : engineConfiguration->injectionMode;
 }
@@ -539,6 +558,7 @@ void Engine::periodicFastCallback() {
 	ScopePerf pc(PE::EnginePeriodicFastCallback);
 
 	boardPeriodicFastCallback();
+	call_board_override(custom_board_periodicFastCallback);
 
 
 	engineState.periodicFastCallback();
@@ -546,6 +566,10 @@ void Engine::periodicFastCallback() {
 	speedoUpdate();
 
 	engineModules.apply_all([](auto & m) { m.onFastCallback(); });
+}
+
+void Engine::onEngineStopped() {
+	engineModules.apply_all([](auto& m) { m.onEngineStop(); });
 }
 
 EngineRotationState * getEngineRotationState() {
@@ -556,7 +580,7 @@ EngineState * getEngineState() {
 	return &engine->engineState;
 }
 
-TunerStudioOutputChannels *getTunerStudioOutputChannels() {
+output_channels_s *getTunerStudioOutputChannels() {
 	return &engine->outputChannels;
 }
 

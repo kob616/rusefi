@@ -7,7 +7,7 @@
  * PPS=pedal position sensor=AcceleratorPedal
  * TPS=throttle position sensor, this one is inside ETB=electronic throttle body
  *
- * Limited user documentation at https://github.com/rusefi/rusefi/wiki/HOWTO_electronic_throttle_body
+ * Limited user documentation at https://wiki.rusefi.com/HOWTO_electronic_throttle_body
  *
  *
  *  ETB is controlled according to pedal position input (pedal position sensor is a potentiometer)
@@ -45,6 +45,8 @@
 #include "dc_motors.h"
 #include "defaults.h"
 #include "tunerstudio.h"
+#include "tunerstudio_calibration_channel.h"
+#include "transition_events.h"
 
 #if defined(HAS_OS_ACCESS)
 #error "Unexpected OS ACCESS HERE"
@@ -63,7 +65,7 @@
 #endif
 
 static pedal2tps_t pedal2tpsMap{"p2t"};
-static Map3D<ETB2_TRIM_SIZE, ETB2_TRIM_SIZE, int8_t, uint8_t, uint8_t> throttle2TrimTable{"t2t"};
+static Map3D<ETB2_TRIM_RPM_SIZE, ETB2_TRIM_SIZE, int8_t, uint8_t, uint8_t> throttle2TrimTable{"t2t"};
 static Map3D<TRACTION_CONTROL_ETB_DROP_SLIP_SIZE, TRACTION_CONTROL_ETB_DROP_SPEED_SIZE, int8_t, uint16_t, uint8_t> tcEtbDropTable{"tce"};
 
 constexpr float etbPeriodSeconds = 1.0f / ETB_LOOP_FREQUENCY;
@@ -210,25 +212,33 @@ bool EtbController::init(dc_function_e function, DcMotor *motor, pid_s *pidParam
 	// Ignore 3% position error before complaining
 	m_targetErrorAccumulator.init(3.0f, etbPeriodSeconds);
 
-	reset();
-
 	state = (uint8_t)EtbState::SuccessfulInit;
 	return true;
 }
 
-void EtbController::reset() {
+#if EFI_UNIT_TEST
+int ebtResetCounter;
+#endif // EFI_UNIT_TEST
+
+void EtbController::reset(const char *reason) {
+	efiPrintf("ETB reset %s", reason);
 	m_shouldResetPid = true;
 	etbTpsErrorCounter = 0;
 	etbPpsErrorCounter = 0;
+#if EFI_UNIT_TEST
+	ebtResetCounter++;
+#endif // EFI_UNIT_TEST
+
 }
 
 // todo: document why is EtbController not engine_module?
 void EtbController::onConfigurationChange(pid_s* previousConfiguration) {
 	if (m_motor && !m_pid.isSame(previousConfiguration)) {
+	  efiPrintf(" ETB m_shouldResetPid");
 		m_shouldResetPid = true;
 	}
 
-	doInitElectronicThrottle();
+	doInitElectronicThrottle(/*isStartupInit*/false);
 }
 
 void EtbController::showStatus() {
@@ -308,11 +318,11 @@ expected<percent_t> EtbController::getSetpointEtb() {
 	}
 
 	float sanitizedPedal = getSanitizedPedal();
-
 	float rpm = Sensor::getOrZero(SensorType::Rpm);
-  percent_t preBoard = m_pedalProvider->getValue(rpm, sanitizedPedal);
+
+	percent_t preBoard = m_pedalProvider->getValue(rpm, sanitizedPedal);
 	etbCurrentTarget = boardAdjustEtbTarget(preBoard);
-	boardEtbAdjustment = preBoard - etbCurrentTarget;
+	boardEtbAdjustment = etbCurrentTarget - preBoard;
 
 	percent_t etbIdlePosition = clampPercentValue(m_idlePosition);
 	percent_t etbIdleAddition = PERCENT_DIV * engineConfiguration->etbIdleThrottleRange * etbIdlePosition;
@@ -469,33 +479,17 @@ expected<percent_t> EtbController::getClosedLoopAutotune(percent_t target, perce
 
 		switch (m_autotuneCurrentParam) {
 		case 0:
-			engine->outputChannels.calibrationMode = (uint8_t)TsCalMode::EtbKp;
-			engine->outputChannels.calibrationValue = kp;
+			tsCalibrationSetData(TsCalMode::EtbKp, kp);
 			break;
 		case 1:
-			engine->outputChannels.calibrationMode = (uint8_t)TsCalMode::EtbKi;
-			engine->outputChannels.calibrationValue = ki;
+			tsCalibrationSetData(TsCalMode::EtbKi, ki);
 			break;
 		case 2:
-			engine->outputChannels.calibrationMode = (uint8_t)TsCalMode::EtbKd;
-			engine->outputChannels.calibrationValue = kd;
+			tsCalibrationSetData(TsCalMode::EtbKd, kd);
 			break;
 		}
 
-		// Also output to debug channels if configured
-		if (engineConfiguration->debugMode == DBG_ETB_AUTOTUNE) {
-			// a - amplitude of output (TPS %)
-			engine->outputChannels.debugFloatField1 = m_a;
-			// b - amplitude of input (Duty cycle %)
-			engine->outputChannels.debugFloatField2 = b;
-			// Tu - oscillation period (seconds)
-			engine->outputChannels.debugFloatField3 = m_tu;
-
-			engine->outputChannels.debugFloatField4 = ku;
-			engine->outputChannels.debugFloatField5 = kp;
-			engine->outputChannels.debugFloatField6 = ki;
-			engine->outputChannels.debugFloatField7 = kd;
-		}
+		efiPrintf("ETB autotune: a=%.3f b=%.3f Tu=%.3f Ku=%.3f Kp=%.3f Ki=%.3f Kd=%.3f", m_a, b, m_tu, ku, kp, ki, kd);
 #endif
 		// TODO: directly update PID settings in engineConfiguration
 	}
@@ -518,6 +512,7 @@ expected<percent_t> EtbController::getClosedLoopAutotune(percent_t target, perce
 expected<percent_t> EtbController::getClosedLoop(percent_t target, percent_t observation) {
 	if (m_shouldResetPid) {
 		m_pid.reset();
+		onTransitionEvent(TransitionEvent::EtbPidReset);
 		m_shouldResetPid = false;
 	}
 
@@ -693,7 +688,7 @@ void EtbController::checkJam(percent_t setpoint, percent_t observation) {
 				efiPrintf(" ************* ETB is jammed! ***************");
 				jamDetected = true;
 
-				getLimpManager()->reportEtbProblem();
+				getLimpManager()->reportEtbJammed();
 			}
 		} else {
 			m_jamDetectTimer.reset(nowNt);
@@ -715,194 +710,12 @@ void EtbController::checkJam(percent_t setpoint, percent_t observation) {
 
 #include <utility>
 
-template <typename TBase>
-class EtbImpl final : public TBase {
-private:
-	enum class ACPhase {
-		Stopped,
-
-		Start,
-
-		// Drive the motor open
-		Open,
-
-		// Drive the motor closed
-		Close,
-
-		// Write learned values to TS
-		TransmitPrimaryMax,
-		TransmitPrimaryMin,
-		TransmitSecondaryMax,
-		TransmitSecondaryMin,
-	};
-
-public:
-	template <typename... TArgs>
-	EtbImpl(TArgs&&... args) : TBase(std::forward<TArgs>(args)...) { }
-
-	void update() override {
-#if EFI_TUNER_STUDIO
-		if (m_autocalPhase != ACPhase::Stopped) {
-			ACPhase nextPhase = doAutocal(m_autocalPhase);
-
-			// if we changed phase, reset the phase timer
-			if (m_autocalPhase != nextPhase) {
-				m_autocalTimer.reset();
-				m_autocalPhase = nextPhase;
-			}
-		} else
-#endif /* EFI_TUNER_STUDIO */
-
-		{
-			TBase::update();
-		}
-	}
-
-	void autoCalibrateTps(bool reportToTs) override {
-		// Only auto calibrate throttles
-		if (TBase::getFunction() == DC_Throttle1 || TBase::getFunction() == DC_Throttle2 || TBase::getFunction() == DC_Wastegate) {
-			m_isAutocalTs = reportToTs;
-			m_autocalPhase = ACPhase::Start;
-		}
-	}
-
-	ACPhase doAutocal(ACPhase phase) {
-		// Don't allow if engine is running!
-		if (Sensor::getOrZero(SensorType::Rpm) > 0) {
-			efiPrintf(" ****************** ERROR: Not while RPM ********************");
-			return ACPhase::Stopped;
-		}
-
-		auto motor = TBase::getMotor();
-		if (!motor) {
-			efiPrintf(" ****************** ERROR: No DC motor ********************");
-			return ACPhase::Stopped;
-		}
-
-		TBase::etbErrorCode = (uint8_t)EtbStatus::AutoCalibrate;
-
-		auto myFunction = TBase::getFunction();
-
-		switch (phase) {
-		case ACPhase::Start:
-			// Open the throttle
-			motor->set(0.5f);
-			motor->enable();
-			return ACPhase::Open;
-		case ACPhase::Open:
-			if (m_autocalTimer.hasElapsedMs(1000)) {
-				// Capture open position
-				m_primaryMax = Sensor::getRaw(functionToTpsSensorPrimary(myFunction));
-				m_secondaryMax = Sensor::getRaw(functionToTpsSensorSecondary(myFunction));
-
-				// Next: close the throttle
-				motor->set(-0.5f);
-				return ACPhase::Close;
-			}
-			break;
-		case ACPhase::Close:
-			if (m_autocalTimer.hasElapsedMs(1000)) {
-				// Capture closed position
-				m_primaryMin = Sensor::getRaw(functionToTpsSensorPrimary(myFunction));
-				m_secondaryMin = Sensor::getRaw(functionToTpsSensorSecondary(myFunction));
-
-				// Disable the motor, we're done
-				motor->disable("autotune");
-
-				// Check that the calibrate actually moved the throttle
-				if (std::abs(m_primaryMax - m_primaryMin) < 0.5f) {
-					firmwareError(ObdCode::OBD_TPS_Configuration, "Auto calibrate failed, check your wiring!\r\nClosed voltage: %.1fv Open voltage: %.1fv", m_primaryMin, m_primaryMax);
-					return ACPhase::Stopped;
-				}
-
-				if (!m_isAutocalTs) {
-					if (myFunction == DC_Throttle1) {
-						engineConfiguration->tpsMin = convertVoltageTo10bitADC(m_primaryMin);
-						engineConfiguration->tpsMax = convertVoltageTo10bitADC(m_primaryMax);
-						engineConfiguration->tps1SecondaryMin = convertVoltageTo10bitADC(m_secondaryMin);
-						engineConfiguration->tps1SecondaryMax = convertVoltageTo10bitADC(m_secondaryMax);
-					} else if (myFunction == DC_Throttle2) {
-						engineConfiguration->tps2Min = convertVoltageTo10bitADC(m_primaryMin);
-						engineConfiguration->tps2Max = convertVoltageTo10bitADC(m_primaryMax);
-						engineConfiguration->tps2SecondaryMin = convertVoltageTo10bitADC(m_secondaryMin);
-						engineConfiguration->tps2SecondaryMax = convertVoltageTo10bitADC(m_secondaryMax);
-					} else if (myFunction == DC_Wastegate) {
-						engineConfiguration->wastegatePositionClosedVoltage = m_primaryMin;
-						engineConfiguration->wastegatePositionOpenedVoltage = m_primaryMax;
-					} else {
-						/* TODO */
-					}
-					return ACPhase::Stopped;
-				}
-
-				// Next: start transmitting results
-				engine->outputChannels.calibrationMode = (uint8_t)functionToCalModePriMax(myFunction);
-				if (TBase::isEtbMode())
-					engine->outputChannels.calibrationValue = convertVoltageTo10bitADC(m_primaryMax);
-				else
-					engine->outputChannels.calibrationValue = m_primaryMax;
-				return ACPhase::TransmitPrimaryMax;
-			}
-			break;
-		case ACPhase::TransmitPrimaryMax:
-			if (m_autocalTimer.hasElapsedMs(500)) {
-				engine->outputChannels.calibrationMode = (uint8_t)functionToCalModePriMin(myFunction);
-				if (TBase::isEtbMode())
-					engine->outputChannels.calibrationValue = convertVoltageTo10bitADC(m_primaryMin);
-				else
-					engine->outputChannels.calibrationValue = m_primaryMin;
-				return ACPhase::TransmitPrimaryMin;
-			}
-			break;
-		case ACPhase::TransmitPrimaryMin:
-			if (m_autocalTimer.hasElapsedMs(500)) {
-				engine->outputChannels.calibrationMode = (uint8_t)functionToCalModeSecMax(myFunction);
-				// No secondary sensor?
-				if (engine->outputChannels.calibrationMode == (uint8_t)TsCalMode::None)
-					return ACPhase::Stopped;
-				engine->outputChannels.calibrationValue = convertVoltageTo10bitADC(m_secondaryMax);
-				return ACPhase::TransmitSecondaryMax;
-			}
-			break;
-		case ACPhase::TransmitSecondaryMax:
-			if (m_autocalTimer.hasElapsedMs(500)) {
-				engine->outputChannels.calibrationMode = (uint8_t)functionToCalModeSecMin(myFunction);
-				engine->outputChannels.calibrationValue = convertVoltageTo10bitADC(m_secondaryMin);
-				return ACPhase::TransmitSecondaryMin;
-			}
-			break;
-		case ACPhase::TransmitSecondaryMin:
-			if (m_autocalTimer.hasElapsedMs(500)) {
-				// Done!
-				engine->outputChannels.calibrationMode = (uint8_t)TsCalMode::None;
-				return ACPhase::Stopped;
-			}
-			break;
-		case ACPhase::Stopped: break;
-		}
-
-		// by default, stay in the same phase
-		return phase;
-	}
-
-private:
-	ACPhase m_autocalPhase = ACPhase::Stopped;
-	Timer m_autocalTimer;
-	// Report calibated values to TS, if false - set directrly to config
-	bool m_isAutocalTs;
-
-	float m_primaryMax;
-	float m_secondaryMax;
-	float m_primaryMin;
-	float m_secondaryMin;
-};
-
 // real implementation (we mock for some unit tests)
-static EtbImpl<EtbController1> etb1;
-static EtbImpl<EtbController2> etb2(throttle2TrimTable);
+EtbImpl<EtbController1> etb1;
+EtbImpl<EtbController2> etb2(throttle2TrimTable);
 
-static_assert(ETB_COUNT == 2);
 static EtbController* etbControllers[] = { &etb1, &etb2 };
+static_assert(ETB_COUNT == sizeof(etbControllers) / sizeof(EtbController*));
 
 void blinkEtbErrorCodes(bool blinkPhase) {
 	for (int i = 0;i<ETB_COUNT;i++) {
@@ -933,14 +746,17 @@ static DcThread dcThread CCM_OPTIONAL;
 
 #endif // !EFI_UNIT_TEST
 
+#if EFI_UNIT_TEST
 void etbPidReset() {
 	for (int i = 0 ; i < ETB_COUNT; i++) {
 		if (auto controller = engine->etbControllers[i]) {
 			assertNotNullVoid(controller);
-			controller->reset();
+			controller->reset("unit_test");
 		}
 	}
+	ebtResetCounter = 0;
 }
+#endif // EFI_UNIT_TEST
 
 void etbAutocal(dc_function_e function, bool reportToTs) {
 	for (size_t i = 0 ; i < ETB_COUNT; i++) {
@@ -954,6 +770,17 @@ void etbAutocal(dc_function_e function, bool reportToTs) {
 				// todo fix root cause! work-around: make sure not to write bad tune since that would brick requestBurn();
 			}
 		}
+	}
+}
+
+void etbBenchTestStart(size_t throttleIndex) {
+	if (throttleIndex >= ETB_COUNT) {
+		efiPrintf("ETB bench test: invalid index %d", (int)throttleIndex);
+		return;
+	}
+	if (auto controller = etbControllers[throttleIndex]) {
+		assertNotNullVoid(controller);
+		controller->startBenchTest();
 	}
 }
 
@@ -1066,7 +893,7 @@ PUBLIC_API_WEAK ValueProvider3D* pedal2TpsProvider() {
   return &pedal2tpsMap;
 }
 
-void doInitElectronicThrottle() {
+void doInitElectronicThrottle(bool isStartupInit) {
 	bool anyEtbConfigured = false;
 
 	// todo: technical debt: we still have DC motor code initialization in ETB-specific file while DC motors are used not just as ETB
@@ -1087,6 +914,9 @@ void doInitElectronicThrottle() {
 		auto pid = getPidForDcFunction(func);
 
 		bool dcConfigured = controller->init(func, motor, pid, pedal2TpsProvider());
+		if (isStartupInit && dcConfigured) {
+			controller->reset("init");
+		}
 		anyEtbConfigured |= dcConfigured && controller->isEtbMode();
 	}
 
@@ -1158,7 +988,7 @@ void initElectronicThrottle() {
 	throttle2TrimTable.initTable(config->throttle2TrimTable, config->throttle2TrimRpmBins, config->throttle2TrimTpsBins);
 	tcEtbDropTable.initTable(engineConfiguration->tractionControlEtbDrop, engineConfiguration->tractionControlSlipBins, engineConfiguration->tractionControlSpeedBins);
 
-	doInitElectronicThrottle();
+	doInitElectronicThrottle(/*isStartupInit*/true);
 }
 
 void setEtbIdlePosition(percent_t pos) {
@@ -1247,6 +1077,7 @@ void setProteusHitachiEtbDefaults() {
 
 #endif /* EFI_ELECTRONIC_THROTTLE_BODY */
 
+// So far used by FragmentEntry (LiveData)
 template<>
 const electronic_throttle_s* getLiveData(size_t idx) {
 #if EFI_ELECTRONIC_THROTTLE_BODY
@@ -1260,3 +1091,14 @@ const electronic_throttle_s* getLiveData(size_t idx) {
 #endif
 }
 
+// root cause: we have poor usability around DC function and h-bridge stepper
+void pickEtbOrStepper() {
+  if (!engineConfiguration->useHbridgesToDriveIdleStepper) {
+    return;
+  }
+  for (size_t i = 0;i<ETB_COUNT;i++) {
+	  if (engineConfiguration->etbFunctions[i] != DC_None) {
+      criticalError("Cannot use H-bridge for stepper while DC function is selected");
+	  }
+	}
+}

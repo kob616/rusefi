@@ -461,7 +461,7 @@ TEST(idle_v2, RunningToIdleTransition) {
   EXPECT_EQ(0, dut.getClosedLoop(ICP::Running, expectedTps.Value, 950, 1100));
   dut.getIdlePid()->postState(engine->outputChannels.idleStatus);
 
-  // first cycle we set shouldResetPid / mustResetPid, now we test the reset:
+  // first cycle we set shouldResetPid, now we test the reset:
   EXPECT_EQ(0, dut.getClosedLoop(ICP::Running, expectedTps.Value, 400, 1100));
   dut.getIdlePid()->postState(engine->outputChannels.idleStatus);
 
@@ -515,7 +515,7 @@ TEST(idle_v2, IntegrationAutomatic) {
 	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
 	StrictMock<IntegrationIdleMock> dut;
 
-	engineConfiguration->idleMode = IM_AUTO;
+	engineConfiguration->idleMode = idle_mode_e::IM_AUTO;
 
 	SensorResult expectedTps = 1;
 	float expectedClt = 37;
@@ -553,7 +553,7 @@ TEST(idle_v2, IntegrationClamping) {
 	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
 	StrictMock<IntegrationIdleMock> dut;
 
-	engineConfiguration->idleMode = IM_AUTO;
+	engineConfiguration->idleMode = idle_mode_e::IM_AUTO;
 
 	SensorResult expectedTps = 1;
 	float expectedClt = 37;

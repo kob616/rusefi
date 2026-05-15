@@ -38,6 +38,7 @@ CONTROLLERS_SRC_CPP = \
 	$(CONTROLLERS_DIR)/engine_cycle/prime_injection.cpp \
 	$(CONTROLLERS_DIR)/engine_cycle/aux_valves.cpp \
 	$(CONTROLLERS_DIR)/engine_cycle/fuel_schedule.cpp \
+	$(CONTROLLERS_DIR)/engine_cycle/rotational_idle.cpp \
 	$(CONTROLLERS_DIR)/flash_main.cpp \
 	$(CONTROLLERS_DIR)/storage.cpp \
 	$(CONTROLLERS_DIR)/storage_flash.cpp \
@@ -56,6 +57,7 @@ CONTROLLERS_SRC_CPP = \
 	$(CONTROLLERS_DIR)/can/can_dash_haltech.cpp \
 	$(CONTROLLERS_DIR)/can/can_dash_honda.cpp \
 	$(CONTROLLERS_DIR)/can/can_vss.cpp \
+	$(CONTROLLERS_DIR)/can/isotp/isotp.cpp \
  	$(CONTROLLERS_DIR)/engine_controller.cpp \
  	$(CONTROLLERS_DIR)/engine_controller_misc.cpp \
 	$(CONTROLLERS_DIR)/persistent_store.cpp \
@@ -73,13 +75,16 @@ CONTROLLERS_SRC_CPP = \
 	$(CONTROLLERS_DIR)/hysteresis.cpp \
 	$(CONTROLLERS_DIR)/max_limit_with_hysteresis.cpp \
 	$(CONTROLLERS_DIR)/long_term_fuel_trim.cpp \
+	$(CONTROLLERS_DIR)/second_tables.cpp \
+	$(CONTROLLERS_DIR)/extra_flash_pages.cpp \
 
 CONTROLLERS_INC=\
 	$(CONTROLLERS_DIR) \
 	$(CONTROLLERS_DIR)/system \
 	$(CONTROLLERS_DIR)/system/timer \
-	$(CONTROLLERS_DIR)/algo \
-	$(CONTROLLERS_DIR)/algo/airmass \
+ $(CONTROLLERS_DIR)/algo \
+ $(CONTROLLERS_DIR)/algo/airmass \
+ $(CONTROLLERS_DIR)/algo/bean \
 	$(CONTROLLERS_DIR)/algo/defaults \
 	$(CONTROLLERS_DIR)/algo/fuel \
 	$(CONTROLLERS_DIR)/algo/ignition \
@@ -88,6 +93,7 @@ CONTROLLERS_INC=\
 	$(CONTROLLERS_DIR)/tcu \
 	$(CONTROLLERS_DIR)/trigger \
 	$(CONTROLLERS_DIR)/can \
+	$(CONTROLLERS_DIR)/can/isotp \
 	$(CONTROLLERS_DIR)/core \
 	$(CONTROLLERS_DIR)/gauges \
 	$(CONTROLLERS_DIR)/math \

@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "hellen_meta.h"
 #include "adc_subscription.h"
+#include "board_overrides.h"
 #include "mmc_card.h"
 #include "storage.h"
 
@@ -8,12 +9,13 @@ void hellenWbo() {
 	engineConfiguration->enableAemXSeries = true;
 }
 
-// same for MM100, 144 and 176
+// same for MM100, 144 and 176 - but different for 64 see 'setHellen64Can'
 void setHellenCan() {
 	engineConfiguration->canTxPin = H176_CAN_TX;
 	engineConfiguration->canRxPin = H176_CAN_RX;
 }
 
+// same for lqfp64
 void setHellenCan2() {
 	engineConfiguration->can2RxPin = Gpio::B12;
 	engineConfiguration->can2TxPin = Gpio::B13;
@@ -36,7 +38,7 @@ void setHellenAnalogDividers() {
 	// set vbatt_divider 5.835
 	// 33k / 6.8k
 	engineConfiguration->vbattDividerCoeff = (33 + 6.8) / 6.8; // 5.835
-	engineConfiguration->adcVcc = 3.29f;
+	engineConfiguration->adcVcc = 3.3f;
 }
 
 void setHellenVbatt() {
@@ -55,7 +57,10 @@ void setHellen64Can() {
 static OutputPin megaEn;
 
 // newer Hellen boards with megamodule have power management for SD cards etc, older Hellen board do not have that
-PUBLIC_API_WEAK bool isBoardWithPowerManagement() {
+bool isBoardWithPowerManagement() {
+  if (custom_board_isBoardWithPowerManagement.has_value()) {
+    return custom_board_isBoardWithPowerManagement.value()();
+  }
   return false;
 }
 
@@ -74,11 +79,12 @@ static bool hellenEnPinInitialized = false;
   return !getHellenBoardEnabled();
 }
 
-PUBLIC_API_WEAK void onHellenEnChange(int value) {
-}
+PUBLIC_API_WEAK void onHellenEnChange(int value) { UNUSED(value); }
 
 // Board specific helper to enable SD card only
 PUBLIC_API_WEAK bool onHellenSdChange(int value) {
+	UNUSED(value);
+
 	// most Hellen board have no separate SD card power control
 	// return false and let MegaEn to be enabled
 	return false;
@@ -223,19 +229,42 @@ void detectHellenBoardType() {
 #endif /* EFI_BOOTLOADER */
 }
 
-int boardGetAnalogDiagnostic()
+ObdCode boardGetAnalogDiagnostic()
 {
 #ifdef DIAG_5VP_PIN
 	/* paranoid check */
 	if (!isBrainPinValid(DIAG_5VP_PIN)) {
 		/* Pin is not defined - return success */
-		return 0;
+		return ObdCode::None;
 	}
 
-	return efiReadPin(DIAG_5VP_PIN) ? 0 : -1;
+	return efiReadPin(DIAG_5VP_PIN) ? ObdCode::None : ObdCode::OBD_ECM_VSS_OUTPUT_A_MALFUNCTION;
 #else
-	return 0;
+	return ObdCode::None;
 #endif
+}
+
+float getAnalogInputDividerCoefficient(adc_channel_e hwChannel) {
+#if (HELLEN_BOARD_MM64 == TRUE)
+	(void)hwChannel;
+	if (0)
+#endif
+#if (HELLEN_BOARD_MM100 == TRUE)
+	if (hwChannel == MM100_IN_CRANK_ANALOG) [[unlikely]]
+#endif
+#if (HELLEN_BOARD_MM144 == TRUE)
+	if (hwChannel == H144_IN_CRANK_ANALOG) [[unlikely]]
+#endif
+#if (HELLEN_BOARD_MM176 == TRUE)
+	if (hwChannel == MM176_IN_CRANK_ANALOG) [[unlikely]]
+#endif
+	{
+		// (4.7K || 5.1K) + 4.7K divider
+		// 4.7K || 5.1K == 2.445K
+		return (4.7f + 2.445f) / 4.7f;
+	}
+
+	return engineConfiguration->analogInputDividerCoefficient;
 }
 
 #ifndef EFI_BOOTLOADER

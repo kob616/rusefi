@@ -2,19 +2,18 @@ package com.rusefi;
 
 import com.devexperts.logging.Logging;
 import com.opensr5.ini.RawIniFile;
-import com.opensr5.ini.field.EnumIniField;
 import com.rusefi.config.FieldType;
 import com.rusefi.core.Pair;
 import com.rusefi.enum_reader.Value;
+import com.rusefi.ini.reader.EnumIniReaderHelper;
 import com.rusefi.output.*;
 import com.rusefi.parse.TokenUtil;
 import com.rusefi.parse.TypesHelper;
+import com.rusefi.tools.tune.FileLinesHelper;
 import com.rusefi.util.LazyFile;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.*;
 
 import static com.devexperts.logging.Logging.getLogging;
@@ -31,7 +30,7 @@ public class ReaderStateImpl implements ReaderState {
     private static final Logging log = getLogging(ReaderStateImpl.class);
 
     public static final String BIT = "bit";
-    private static final String CUSTOM = "custom";
+    public static final String CUSTOM = "custom";
     private static final String END_STRUCT = "end_struct";
     private static final String STRUCT_NO_PREFIX = "struct_no_prefix ";
     private static final String STRUCT = "struct ";
@@ -56,6 +55,8 @@ public class ReaderStateImpl implements ReaderState {
 
     private final EnumsReader enumsReader = new EnumsReader();
     private final VariableRegistry variableRegistry = new VariableRegistry();
+    private final Map<String, EnumGenerator.Parser.EnumDefinition> enumDefinitionMap = new HashMap<>();
+    private int defaultBitNameCounter;
 
     public ReaderStateImpl() {
         this(ReaderProvider.REAL, LazyFile.REAL);
@@ -64,6 +65,20 @@ public class ReaderStateImpl implements ReaderState {
     public ReaderStateImpl(ReaderProvider readerProvider, LazyFile.LazyFileFactory fileFactory) {
         this.readerProvider = readerProvider;
         this.fileFactory = fileFactory;
+    }
+
+    @Override
+    public int getDefaultBitNameCounter() {
+        return defaultBitNameCounter;
+    }
+
+    @Override
+    public void intDefaultBitNameCounter() {
+        defaultBitNameCounter++;
+    }
+
+    public Map<String, EnumGenerator.Parser.EnumDefinition> getEnumDefinitionMap() {
+        return enumDefinitionMap;
     }
 
     @Override
@@ -156,7 +171,7 @@ public class ReaderStateImpl implements ReaderState {
         enumsReader.enums.putAll(newEnums);
     }
 
-    private void handleCustomLine(String customLineWithPrefix) {
+    public void handleCustomLine(String customLineWithPrefix) {
         String withoutPrefix = customLineWithPrefix.substring(CUSTOM.length() + 1).trim();
         Pair<String, String> nameAndRest = TokenUtil.grabFirstTokenAndTheRest(withoutPrefix);
         String name = nameAndRest.first;
@@ -181,10 +196,10 @@ public class ReaderStateImpl implements ReaderState {
             FieldType typeInTsString = FieldType.parseTs(tsTypeString);
             if (size != typeInTsString.getStorageSize())
                 throw new SizeMismatchException("Size mismatch " + customSize + " vs " + tsTypeString + " in " + customLineWithPrefix);
-            EnumIniField.ParseBitRange bitRange = new EnumIniField.ParseBitRange().invoke(rawLine.getTokens()[3]);
+            EnumIniReaderHelper.ParseBitRange bitRange = new EnumIniReaderHelper.ParseBitRange().invoke(rawLine.getTokens()[3]);
             int totalCount = 1 << (bitRange.getBitSize0() + 1);
             List<String> enums = Arrays.asList(rawLine.getTokens()).subList(4, rawLine.getTokens().length);
-            boolean isKeyValueSyntax = EnumIniField.EnumKeyValueMap.isKeyValueSyntax(EnumIniField.getEnumValuesSection(tunerStudioLine));
+            boolean isKeyValueSyntax = EnumIniReaderHelper.isKeyValueSyntax(EnumIniReaderHelper.getEnumValuesSection(tunerStudioLine));
             int enumCount = isKeyValueSyntax ? enums.size() / 2 : enums.size();
             if (enumCount > totalCount)
                 throw new IllegalStateException(name + ": Too many options in " + tunerStudioLine + " capacity=" + totalCount + "/size=" + enums.size());
@@ -238,6 +253,10 @@ public class ReaderStateImpl implements ReaderState {
         if (log.debugEnabled())
             log.debug("Ending structure " + structure.getName());
         structure.addAlignmentFill(this, 4);
+        // Validate only on top-level structs
+        if (isStackEmpty()) {
+            structure.validateNoForwardReferences();
+        }
 
         ConfigStructureImpl existing = structures.put(structure.getName(), structure);
         if (existing != null)
@@ -266,7 +285,7 @@ public class ReaderStateImpl implements ReaderState {
             if (lineReaded.startsWith(INCLUDE_FILE)) {
                 String fileName = lineReaded.substring(INCLUDE_FILE.length()).trim();
                 log.info("Including " + fileName);
-                lines.addAll(readAllLinesWithRoot(fileName));
+                lines.addAll(FileLinesHelper.readAllLinesWithRoot(fileName));
             } else if (lineReaded.startsWith(SPLIT_LINES)) {
                 String template = lineReaded.substring(SPLIT_LINES.length());
                 String lineExpanded = variableRegistry.applyVariables(template);
@@ -315,11 +334,6 @@ public class ReaderStateImpl implements ReaderState {
         for (ConfigurationConsumer consumer : consumers)
             consumer.endFile();
         ensureEmptyAfterProcessing();
-    }
-
-    public static @NotNull List<String> readAllLinesWithRoot(String fileName) throws IOException {
-        // 'getAbsolutePath' seems to somehow help some tests? something is weird
-        return Files.readAllLines(Paths.get(new File(RootHolder.ROOT + fileName).getAbsolutePath()));
     }
 
     private void addBitPadding() {
@@ -425,9 +439,6 @@ public class ReaderStateImpl implements ReaderState {
     @Override
     public void addCHeaderDestination(String cHeaderFileName) {
         destinations.add(new CHeaderConsumer(this, ConfigDefinitionRootOutputFolder.getValue() + cHeaderFileName, withC_Defines, fileFactory));
-    }
-
-    public void addJavaDestination(String fileName) {
     }
 
     @Override

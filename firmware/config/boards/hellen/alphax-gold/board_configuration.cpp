@@ -77,7 +77,7 @@ static void setDefaultSensorInputs() {
 	engineConfiguration->iat.adcChannel = H144_IN_IAT;
 }
 
-void setBoardConfigOverrides() {
+static void alphax_gold_boardConfigOverrides() {
 	setHellenMegaEnPin();
 
 	setHellenVbatt();
@@ -98,10 +98,10 @@ static void setDefaultETBPins() {
 /**
  * @brief   Board-specific configuration defaults.
  *
- * See also setDefaultEngineConfiguration
+
  *
  */
-void setBoardDefaultConfiguration() {
+static void alphax_gold_boardDefaultConfiguration() {
 	setInjectorPins();
 	setIgnitionPins();
 	setHellenMMbaro();
@@ -339,7 +339,7 @@ static void alphax_gold_boardInitHardware() {
 	board_init_ext_gpios();
 }
 
-/*PUBLIC_API_WEAK*/ void boardOnConfigurationChange(engine_configuration_s * /*previousConfiguration*/) {
+static void alphax_gold_OnConfigurationChange(engine_configuration_s * /*previousConfiguration*/) {
 	alphaTempPullUp.setValue(engineConfiguration->boardEnTempPullUp);
 	alphaKnock1PullUp.setValue(engineConfiguration->boardEnKnock1PullUp);
 	alphaKnock2PullUp.setValue(engineConfiguration->boardEnKnock2PullUp);
@@ -400,5 +400,8 @@ int getBoardMetaDcOutputsCount() {
 
 void setup_custom_board_overrides() {
 	custom_board_InitHardware = alphax_gold_boardInitHardware;
+	custom_board_DefaultConfiguration = alphax_gold_boardDefaultConfiguration;
+	custom_board_ConfigOverrides = alphax_gold_boardConfigOverrides;
+	custom_board_OnConfigurationChange = alphax_gold_OnConfigurationChange;
 }
 

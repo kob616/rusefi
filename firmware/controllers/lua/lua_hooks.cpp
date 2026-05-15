@@ -2,6 +2,7 @@
 
 #include "rusefi_lua.h"
 #include "lua_hooks.h"
+#include "second_tables.h"
 
 #include "lua_biquad.h"
 #include "fuel_math.h"
@@ -25,6 +26,7 @@
 
 #if EFI_CAN_SUPPORT || EFI_UNIT_TEST
 #include "can_msg_tx.h"
+#include "can_hw.h"
 #endif // EFI_CAN_SUPPORT
 #include "settings.h"
 #include <new>
@@ -174,8 +176,7 @@ uint32_t getLuaArray(lua_State* l, int paramIndex, uint8_t *data, uint32_t size)
 
 static int validateCanChannelAndConvertFromHumanIntoZeroIndex(lua_State* l) {
 	lua_Integer channel = luaL_checkinteger(l, 1);
-	// TODO: support multiple channels
-	luaL_argcheck(l, channel == 1 || channel == 2, 1, "only buses 1 and 2 currently supported");
+	luaL_argcheck(l, channel >= 1 && channel <= EFI_CAN_BUS_COUNT, 1, "Invalid bus index");
 	return channel - HUMAN_OFFSET;
 }
 
@@ -242,6 +243,21 @@ static int lua_txCan(lua_State* l) {
 	msg.setDlc(dlc);
 
 	// no return value
+	return 0;
+}
+
+static int lua_canSetBaud(lua_State* l) {
+	int bus = validateCanChannelAndConvertFromHumanIntoZeroIndex(l);
+	int baud = luaL_checkinteger(l, 2);
+
+#if !EFI_UNIT_TEST
+	int ret = setCanBaud(bus, baud);
+
+	if (ret < 0) {
+		luaL_error(l, "Failed to change CAN%d baudrate to %d", bus + 1, baud);
+	}
+#endif
+
 	return 0;
 }
 #endif // EFI_CAN_SUPPORT
@@ -391,26 +407,6 @@ static int lua_getAuxDigital(lua_State* l) {
 #endif // !EFI_SIMULATOR
 
 	return 1;
-}
-
-static int lua_setDebug(lua_State* l) {
-	// wrong debug mode, ignore
-	if (engineConfiguration->debugMode != DBG_LUA) {
-		return 0;
-	}
-
-	auto idx = luaL_checkinteger(l, 1);
-	auto val = luaL_checknumber(l, 2);
-
-	// invalid index, ignore
-	if (idx < 1 || idx > 7) {
-		return 0;
-	}
-
-	auto firstDebugField = &engine->outputChannels.debugFloatField1;
-	firstDebugField[idx - 1] = val;
-
-	return 0;
 }
 
 #if EFI_ENGINE_CONTROL
@@ -641,6 +637,7 @@ static tinymt32_t tinymt;
 
 void configureRusefiLuaHooks(lua_State* lState) {
   boardConfigureLuaHooks(lState);
+  configureRusefiLuaHooksExt(lState);
 
   tinymt32_init(&tinymt, 1534525); // todo: share instance with launch_control? probably not?
 	lua_register(lState, "random", [](lua_State* l) {
@@ -695,7 +692,7 @@ void configureRusefiLuaHooks(lua_State* lState) {
 
 	lua_register(lState, "readPin", lua_readpin);
 #if EFI_PROD_CODE && EFI_SHAFT_POSITION_INPUT
-	lua_register(lState, "startCrankingEngine", [](lua_State* l) {
+	lua_register(lState, "startCrankingEngine", [](lua_State*) {
 		doStartCranking();
 		return 0;
 	});
@@ -807,7 +804,19 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
 		engine->engineState.updateSparkSkip();
 		return 0;
 	});
+	lua_register(lState, "setLaunchTrigger", [](lua_State* l) {
+		auto value = luaL_checkinteger(l, 1);
+  	engine->launchController.luaLaunchState = value;
+		return 0;
+	});
 #endif // EFI_LAUNCH_CONTROL
+#if EFI_ANTILAG_SYSTEM
+	lua_register(lState, "setRollingIdleTrigger", [](lua_State* l) {
+		auto value = luaL_checkinteger(l, 1);
+  	engine->antilagController.luaAntilagState = value;
+		return 0;
+	});
+#endif // EFI_ANTILAG_SYSTEM
 
 #if EFI_EMULATE_POSITION_SENSORS && !EFI_UNIT_TEST
 	lua_register(lState, "selfStimulateRPM", [](lua_State* l) {
@@ -870,6 +879,11 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
 	  }
 		return 1;
 	});
+
+	lua_register(lState, "setEngineTorque", [](lua_State* l) {
+		engine->engineState.lua.engineTorque = luaL_checknumber(l, 1);
+		return 0;
+	});
 #endif // STM32F4
 
 #if !defined(STM32F4) || defined(WITH_LUA_GET_GPPWM_STATE)
@@ -893,7 +907,7 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
 	lua_register(lState, "restartEtb", [](lua_State*) {
 		// this is about Lua sensor acting in place of real analog PPS sensor
 		// todo: smarter implementation
-		doInitElectronicThrottle();
+		doInitElectronicThrottle(true); // lame, we run with 'isStartupInit=true' in order to reset, NOT COOL
 		return 0;
 	});
 #endif // EFI_ELECTRONIC_THROTTLE_BODY
@@ -1012,10 +1026,11 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
 		auto rpm = Sensor::getOrZero(SensorType::Rpm);
 		auto tps = Sensor::getOrZero(SensorType::Tps1);
 
+ 	  // here we assume load is TPS
 		auto result = interpolate3d(
-                  		config->torqueTable,
-                  		config->torqueLoadBins, tps,
-                  		config->torqueRpmBins, rpm
+                  		secondTablesGetState()->torqueTable,
+                  		secondTablesGetState()->torqueLoadBins, tps,
+                  		secondTablesGetState()->torqueRpmBins, rpm
                   	);
 		lua_pushnumber(l, result);
 		return 1;
@@ -1116,7 +1131,6 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
                                  	});
 	lua_register(lState, "getDigital", lua_getDigital);
 	lua_register(lState, "getAuxDigital", lua_getAuxDigital);
-	lua_register(lState, "setDebug", lua_setDebug);
 #if EFI_ENGINE_CONTROL
 	lua_register(lState, "getAirmass", lua_getAirmass);
 	lua_register(lState, "setAirmass", lua_setAirmass);
@@ -1158,6 +1172,7 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
 
 #if EFI_CAN_SUPPORT || EFI_UNIT_TEST
 	lua_register(lState, "txCan", lua_txCan);
+	lua_register(lState, "canSetBaud", lua_canSetBaud);
 #endif
 
 #if EFI_PROD_CODE

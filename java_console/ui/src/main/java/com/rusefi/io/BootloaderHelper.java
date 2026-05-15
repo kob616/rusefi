@@ -5,10 +5,8 @@ import com.rusefi.UiProperties;
 import com.rusefi.core.RusEfiSignature;
 import com.rusefi.core.SignatureHelper;
 import com.rusefi.core.io.BundleUtil;
-import com.rusefi.binaryprotocol.BinaryProtocol;
 
 import javax.swing.*;
-import java.io.IOException;
 
 import static com.devexperts.logging.Logging.getLogging;
 import static com.rusefi.Timeouts.SECOND;
@@ -20,21 +18,12 @@ import static com.rusefi.binaryprotocol.BinaryProtocol.sleep;
 public class BootloaderHelper {
     private static final Logging log = getLogging(BootloaderHelper.class);
 
-    private static void sendBootloaderRebootCommand(IoStream stream, UpdateOperationCallbacks callbacks, String cmd) {
-        byte[] command = BinaryProtocol.getTextCommandBytes(cmd);
-        try {
-            stream.sendPacket(command);
-            callbacks.logLine(String.format("Reboot command [%s] sent into %s!\n", cmd, stream));
-        } catch (IOException e) {
-            callbacks.logLine("Error " + e);
-        }
-    }
-
     public static boolean sendBootloaderRebootCommand(JComponent parent, String signature, IoStream stream, UpdateOperationCallbacks callbacks, String command) {
         RusEfiSignature controllerSignature = SignatureHelper.parse(signature);
         String fileSystemBundleTarget = BundleUtil.getBundleTarget();
         if (fileSystemBundleTarget != null && controllerSignature != null) {
             // hack: QC firmware self-identifies as "normal" not QC firmware :(
+            // [tag:QC_firmware]
             if (!UiProperties.skipEcuTypeDetection() &&
                 !fileSystemBundleTarget.equalsIgnoreCase(controllerSignature.getBundleTarget()) && !fileSystemBundleTarget.contains("_QC_")) {
                 String message = String.format("You have \"%s\" controller does not look right to program it with \"%s\"", controllerSignature.getBundleTarget(), fileSystemBundleTarget);
@@ -57,7 +46,7 @@ public class BootloaderHelper {
             }
         }
 
-        sendBootloaderRebootCommand(stream, callbacks, command);
+        BootloaderCommsHelper.sendBootloaderRebootCommand(stream, callbacks, command);
         return true;
     }
 }

@@ -13,7 +13,7 @@
  * MRE_BOARD_NEW_TEST
  * set engine_type 31
  *
- * See https://github.com/rusefi/rusefi/wiki/Hardware-microRusEfi-wiring
+ * See https://wiki.rusefi.com/Hardware-microRusEfi-wiring
  *
  * @author Matthew Kennedy, (c) 2019
  */
@@ -21,6 +21,7 @@
 #include "pch.h"
 #include "mre_meta.h"
 #include "defaults.h"
+#include "board_overrides.h"
 
 static void setInjectorPins() {
 	engineConfiguration->injectionPins[0] = MRE_INJ_1;
@@ -66,7 +67,7 @@ static void setupVbatt() {
 	// PC1, pin #1 input +12 from Main Relay. Main Relay controlled by TLE8888
 	engineConfiguration->vbattAdcChannel = EFI_ADC_11;
 
-	engineConfiguration->adcVcc = 3.29f;
+	engineConfiguration->adcVcc = 3.3f;
 }
 
 static void setupTle8888() {
@@ -118,7 +119,7 @@ static void setupDefaultSensorInputs() {
 #endif // EFI_BOOTLOADER
 }
 
-void setBoardConfigOverrides() {
+static void microrusefi_boardConfigOverrides() {
 	setupVbatt();
 	setupTle8888();
 	setupEtb();
@@ -145,11 +146,11 @@ void setBoardConfigOverrides() {
 /**
  * @brief   Board-specific configuration defaults.
  *
- * See also setDefaultEngineConfiguration
+
  *
 
  */
-void setBoardDefaultConfiguration() {
+static void microrusefi_boardDefaultConfiguration() {
 	setInjectorPins();
 	setIgnitionPins();
 
@@ -226,4 +227,9 @@ Gpio* getBoardMetaOutputs() {
 
 int getBoardMetaDcOutputsCount() {
     return 1;
+}
+
+void setup_custom_board_overrides() {
+	custom_board_DefaultConfiguration = microrusefi_boardDefaultConfiguration;
+	custom_board_ConfigOverrides = microrusefi_boardConfigOverrides;
 }

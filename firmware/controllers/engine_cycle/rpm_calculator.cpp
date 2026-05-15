@@ -46,12 +46,12 @@ uint32_t RpmCalculator::getRevolutionCounterSinceStart(void) const {
 	return revolutionCounterSinceStart;
 }
 
-/**
- * @return -1 in case of isNoisySignal(), current RPM otherwise
- * See NOISY_RPM
- */
 float RpmCalculator::getCachedRpm() const {
 	return cachedRpmValue;
+}
+
+float RpmCalculator::getMinCrankingRpm() const {
+	return minCrankingRpm;
 }
 
 operation_mode_e lookupOperationMode() {
@@ -157,10 +157,16 @@ void RpmCalculator::assignRpmValue(float floatRpmValue) {
 }
 
 void RpmCalculator::setRpmValue(float value) {
+	if (value > MAX_ALLOWED_RPM) {
+		value = 0;
+	}
+
 	assignRpmValue(value);
 	spinning_state_e oldState = state;
 	// Change state
 	if (cachedRpmValue == 0) {
+		// Reset minCrankingRpm between attempts
+		minCrankingRpm = 0;
 		state = STOPPED;
 	} else if (cachedRpmValue >= engineConfiguration->cranking.rpm) {
 		if (state != RUNNING) {
@@ -174,6 +180,8 @@ void RpmCalculator::setRpmValue(float value) {
 		 * We are here if RPM is above zero but we have not seen running RPM yet.
 		 * This gives us cranking hysteresis - a drop of RPM during running is still running, not cranking.
 		 */
+		if (value < minCrankingRpm || minCrankingRpm == 0)
+			minCrankingRpm = value;
 		state = CRANKING;
 	}
 #if EFI_ENGINE_CONTROL
@@ -212,9 +220,9 @@ void RpmCalculator::onSlowCallback() {
 	}
 }
 
-void RpmCalculator::setStopped() {
+void RpmCalculator::setStopSpinning() {
+	isSpinning = false;
 	revolutionCounterSinceStart = 0;
-
 	rpmRate = 0;
 
 	if (cachedRpmValue != 0) {
@@ -224,11 +232,8 @@ void RpmCalculator::setStopped() {
 		efiPrintf("engine stopped");
 	}
 	state = STOPPED;
-}
 
-void RpmCalculator::setStopSpinning() {
-	isSpinning = false;
-	setStopped();
+	engine->onEngineStopped();
 }
 
 void RpmCalculator::setSpinningUp(efitick_t nowNt) {
@@ -280,7 +285,7 @@ void rpmShaftPositionCallback(trigger_event_e ckpSignalType,
 		 */
 			if (!alwaysInstantRpm) {
 				if (periodSeconds == 0) {
-					rpmState->setRpmValue(NOISY_RPM);
+					rpmState->setRpmValue(0);
 					rpmState->rpmRate = 0;
 				} else {
 				  // todo: extract utility method? see duplication with high_pressure_pump.cpp
@@ -290,7 +295,7 @@ void rpmShaftPositionCallback(trigger_event_e ckpSignalType,
 					auto rpmDelta = rpm - rpmState->previousRpmValue;
 					rpmState->rpmRate = rpmDelta / (mult * periodSeconds);
 
-					rpmState->setRpmValue(rpm > UNREALISTIC_RPM ? NOISY_RPM : rpm);
+					rpmState->setRpmValue(rpm);
 				}
 			}
 		} else {
@@ -317,6 +322,8 @@ void rpmShaftPositionCallback(trigger_event_e ckpSignalType,
 		rpmState->assignRpmValue(instantRpm);
 #if 0
 		efiPrintf("** RPM: idx=%d sig=%d iRPM=%d", trgEventIndex, ckpSignalType, instantRpm);
+#else
+		UNUSED(ckpSignalType);
 #endif
 	}
 }
@@ -363,7 +370,7 @@ void tdcMarkCallback(
 		int revIndex2 = getRevolutionCounter() % 2;
 		float rpm = Sensor::getOrZero(SensorType::Rpm);
 		// todo: use tooth event-based scheduling, not just time-based scheduling
-		if (isValidRpm(rpm)) {
+		if (rpm != 0) {
 			angle_t tdcPosition = tdcPosition();
 			// we need a positive angle offset here
 			wrapAngle(tdcPosition, "tdcPosition", ObdCode::CUSTOM_ERR_6553);

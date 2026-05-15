@@ -55,8 +55,8 @@ public class LiveDataProcessor {
     }
 
     public static void main(String[] args) throws IOException {
-        if (args.length != 6) {
-            System.err.println("Six arguments expected: name of live data yaml input file and else but got " + args.length + ": " + Arrays.toString(args));
+        if (args.length != 5) {
+            System.err.println("Five arguments expected: name of live data yaml input file and else but got " + args.length + ": " + Arrays.toString(args));
             System.exit(-1);
         }
         log.info("Invoked with " + Arrays.toString(args));
@@ -65,9 +65,8 @@ public class LiveDataProcessor {
         String definitionInputFileName = args[1];
         String headerFileName = args[2];
         String javaDestinationFolder = args[3];
-        String javaDestinationFileName = args[4];
-        String destinationFolder = args[5];
-        TriggerMetaGenerator.doJob(definitionInputFileName, headerFileName, javaDestinationFolder, javaDestinationFileName);
+        String destinationFolder = args[4];
+        TriggerMetaGenerator.doJob(definitionInputFileName, headerFileName, javaDestinationFolder);
         List<LinkedHashMap> totalContent = new ArrayList<>();
         for (String fileName : yamlFileNames.split(",")) {
             List<LinkedHashMap> yamlContent = getStringObjectMap(new FileReader(fileName));
@@ -227,6 +226,8 @@ public class LiveDataProcessor {
                 } else if (engineModule != null) {
                     outputValueConsumer.currentEngineModule = engineModule;
                     outputValueConsumer.moduleMode = true;
+                    outputValueConsumer.expressions = new String[] {""};
+                    outputValueConsumer.names = outputNames;
                     outputValueConsumer.conditional = conditional;
                     outputValueConsumer.isPtr = isPtr;
                     state.addDestination(outputValueConsumer::handleEndStruct);
@@ -254,6 +255,8 @@ public class LiveDataProcessor {
             }
         };
 
+        StringBuilder additionalHeadersStr = new StringBuilder();
+
         for (LinkedHashMap<?, ?> entry : liveDocs) {
             String name = (String) entry.get("name");
             String java = (String) entry.get("java");
@@ -270,6 +273,21 @@ public class LiveDataProcessor {
             isPtr = isPtr != null && isPtr;
 
             Object outputNames = entry.get("output_name");
+            Object additionalHeaders = entry.get("additional_headers");
+
+            if (additionalHeaders != null) {
+                String[] additionalHeadersArr = getStrings(additionalHeaders);
+
+                for (String s : additionalHeadersArr) {
+                    if (conditional != null) {
+                        additionalHeadersStr.append("#if ").append(conditional).append("\n");
+                    }
+                    additionalHeadersStr.append("#include <").append(s).append(">\n");
+                    if (conditional != null) {
+                        additionalHeadersStr.append("#endif\n");
+                    }
+                }
+            }
 
             String[] outputNamesArr = getStrings(outputNames);
             String[] constexpr = constexprValue == null ? null : getStrings(constexprValue);
@@ -316,8 +334,12 @@ public class LiveDataProcessor {
         }
         enumContent.append("} live_data_e;\n");
 
+        if (additionalHeadersStr.length() > 0) {
+            outputValueConsumer.additionalHeaders = additionalHeadersStr.toString();
+        }
+
         LazyFile lazyFile = fileFactory.create(destinationFolder + SdCardFieldsContent.SD_CARD_OUTPUT_FILE_NAME);
-        SdCardFieldsContent.wrapContent(lazyFile, sdCardFieldsConsumer.getBody());
+        SdCardFieldsContent.wrapContent(lazyFile, sdCardFieldsConsumer.getBody(), additionalHeadersStr.toString());
         lazyFile.close();
 
         dataLogConsumer.endFile();

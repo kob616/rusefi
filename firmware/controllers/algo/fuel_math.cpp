@@ -131,6 +131,10 @@ float getRunningFuel(float baseFuel) {
 	correction *= engine->module<NitrousController>().unmock().getFuelCoefficient();
 #endif
 
+#ifdef MODULE_VVL_CONTROLLER
+	correction *= engine->module<VvlController>().unmock().getFuelCoefficient();
+#endif /* MODULE_VVL_CONTROLLER */
+
 	correction *= getLimpManager()->getLimitingFuelCorrection();
 
 	float runningFuel = baseFuel * correction;
@@ -150,19 +154,22 @@ static MafAirmass mafAirmass(veMap);
 static AlphaNAirmass alphaNAirmass(veMap);
 
 AirmassModelBase* getAirmassModel(engine_load_mode_e mode) {
-	switch (mode) {
-		case LM_SPEED_DENSITY: return &sdAirmass;
-		case LM_REAL_MAF: return &mafAirmass;
-		case LM_ALPHA_N: return &alphaNAirmass;
-#if EFI_LUA
-		case LM_LUA: return &(getLuaAirmassModel());
-#endif
 #if EFI_UNIT_TEST
-		case LM_MOCK: return engine->mockAirmassModel;
+	if (mode == engine_load_mode_e::UNSUPPORTED_ENUM_VALUE) {
+		return engine->mockAirmassModel;
+	}
 #endif
-		default:
-			firmwareError(ObdCode::CUSTOM_ERR_ASSERT, "Invalid airmass mode %d", engineConfiguration->fuelAlgorithm);
-			return nullptr;
+
+	switch (mode) {
+	case engine_load_mode_e::LM_SPEED_DENSITY: return &sdAirmass;
+	case engine_load_mode_e::LM_REAL_MAF: return &mafAirmass;
+	case engine_load_mode_e::LM_ALPHA_N: return &alphaNAirmass;
+#if EFI_LUA
+	case engine_load_mode_e::LM_LUA: return &(getLuaAirmassModel());
+#endif
+	default:
+		firmwareError(ObdCode::CUSTOM_ERR_ASSERT, "Invalid airmass mode %d", engineConfiguration->fuelAlgorithm);
+		return nullptr;
 	}
 }
 
@@ -480,8 +487,14 @@ float getStandardAirCharge() {
 	return idealGasLaw(cylDisplacement, STD_ATMOSPHERE, C_K_OFFSET + STD_IAT);
 }
 
-PUBLIC_API_WEAK_SOMETHING_WEIRD
+#include "board_overrides.h"
+
+std::optional<setup_custom_get_cylinder_fuel_trim_type> custom_board_getCylinderFuelTrim;
+
 float getCylinderFuelTrim(size_t cylinderNumber, float rpm, float fuelLoad) {
+	if (custom_board_getCylinderFuelTrim.has_value()) {
+		return custom_board_getCylinderFuelTrim.value()(cylinderNumber, rpm, fuelLoad);
+	}
 	auto trimPercent = interpolate3d(
 		config->fuelTrims[cylinderNumber].table,
 		config->fuelTrimLoadBins, fuelLoad,

@@ -6,6 +6,8 @@
  *
  * https://www.efianalytics.com/TunerStudio/docs/MLG_Binary_LogFormat_1.0.pdf
  * https://www.efianalytics.com/TunerStudio/docs/MLG_Binary_LogFormat_2.0.pdf
+ *
+ * for opposite see mlg_reader.cpp
  */
 
 #include "pch.h"
@@ -23,9 +25,6 @@
 extern bool main_loop_started;
 #endif
 
-namespace MLG
-{
-
 // floating number of seconds with millisecond precision
 static scaled_channel<uint32_t, TIME_PRECISION> packedTime;
 
@@ -33,6 +32,9 @@ static scaled_channel<uint32_t, TIME_PRECISION> packedTime;
 // We use angle brackets instead of quotes because for some boards we want to use header different from the one in this
 // directory
 #include <log_fields_generated.h>
+
+namespace MLG
+{
 
 int getSdCardFieldsCount() {
 	return efi::size(fields);

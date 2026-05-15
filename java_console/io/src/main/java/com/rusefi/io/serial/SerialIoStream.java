@@ -41,12 +41,15 @@ public abstract class SerialIoStream extends AbstractIoStream {
     protected static SerialPort openSerial(String port) {
         SerialPort serialPort = SerialPort.getCommPort(port);
         serialPort.setBaudRate(BaudRateHolder.INSTANCE.baudRate);
-        boolean openedOk = serialPort.openPort(0);
+        boolean openedOk = serialPort.openPort();
         if (!openedOk) {
             log.error("Error opening " + port + " maybe no permissions?");
             // todo: leverage jSerialComm method once we start using version 2.9+
             return null;
         }
+        // Discard any stale bytes left in the RX/TX queues by a prior
+        // open/close cycle (e.g. scanner probe, prior console connection).
+        serialPort.flushIOBuffers();
         return serialPort;
     }
 

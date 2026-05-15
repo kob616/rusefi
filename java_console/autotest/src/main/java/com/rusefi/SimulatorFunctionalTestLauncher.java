@@ -1,11 +1,12 @@
 package com.rusefi;
 
-import com.opensr5.ini.IniFileModelImpl;
+import com.rusefi.ini.reader.IniFileReaderUtil;
 import com.rusefi.binaryprotocol.BinaryProtocol;
 import com.rusefi.io.LinkManager;
 import com.rusefi.simulator.SimulatorFunctionalTest;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 
 /**
@@ -21,7 +22,13 @@ public class SimulatorFunctionalTestLauncher {
         if (args.length == 0)
             throw new IllegalArgumentException("Required argument: .ini filename");
         String iniFileName = args[0];
-        BinaryProtocol.iniFileProvider = signature -> IniFileModelImpl.readIniFile(iniFileName);
+        BinaryProtocol.iniFileProvider = signature -> {
+            try {
+                return IniFileReaderUtil.readIniFile(iniFileName);
+            } catch (FileNotFoundException e) {
+                throw new RuntimeException(e);
+            }
+        };
         boolean startSimulator = args.length > 1 && args[1].equalsIgnoreCase("start");
 
 //        if (startSimulator) {
@@ -55,7 +62,7 @@ public class SimulatorFunctionalTestLauncher {
     }
 
     private static void buildSimulator() throws IOException, InterruptedException {
-        Process makeProcess = Runtime.getRuntime().exec("make -j8", null, new File("../simulator"));
+        Process makeProcess = Runtime.getRuntime().exec("make -j8", null, new File("simulator"));
         SimulatorExecHelper.dumpProcessOutput(makeProcess, null);
         makeProcess.waitFor();
     }

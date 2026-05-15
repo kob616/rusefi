@@ -15,6 +15,8 @@ PCHSUB = unit_tests
 include $(PROJECT_DIR)/rusefi_rules.mk
 
 # User may want to pass in a forced value for SANITIZE
+# SANITIZE=yes enables AddressSanitizer (ASan) which is incompatible with Valgrind.
+# If you want to run Valgrind, you must use SANITIZE=no.
 ifeq ($(SANITIZE),)
 	ifneq ($(OS),Windows_NT)
 		SANITIZE = yes
@@ -80,7 +82,7 @@ ifeq ($(USE_OPT),)
   #USE_OPT = $(RFLAGS) -O2 -fgnu89-inline -ggdb -fomit-frame-pointer -falign-functions=16 -std=gnu99 -Werror-implicit-function-declaration -Werror -Wno-error=pointer-sign -Wno-error=unused-function -Wno-error=unused-variable -Wno-error=sign-compare -Wno-error=unused-parameter -Wno-error=missing-field-initializers
   USE_OPT = -c -Wall -O0 -ggdb -g -fno-omit-frame-pointer
   USE_OPT += -Werror=missing-field-initializers
-  USE_OPT += -D US_TO_NT_MULTIPLIER=$(US_TO_NT_MULTIPLIER)
+  USE_OPT += -D US_TO_NT_MULTIPLIER=$(US_TO_NT_MULTIPLIER) $(DDEFS)
 endif
 
 #TODO! this is a nice goal
@@ -161,13 +163,6 @@ CWARN = -Wall -Wextra -Wstrict-prototypes -pedantic -Wmissing-prototypes -Wold-s
 
 # Define C++ warning options here
 CPPWARN = -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-unused-variable -Wno-format -Wno-unused-parameter
-
-# TODO: improve on this code duplication drama!
-# current problem with older gcc in unit_tests is
-# cc1plus: error: unrecognized command line option \u2018-Wno-unused-private-field\u2019 [-Werror]
-#RULESFILE = ../firmware/rusefi_rules.mk
-#include $(RULESFILE)
-#USE_OPT += $(RUSEFI_OPT) -Wno-error=pedantic
 
 USE_OPT += -Werror=switch
 

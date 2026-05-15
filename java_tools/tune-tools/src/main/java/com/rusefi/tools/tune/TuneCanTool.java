@@ -10,11 +10,10 @@ import com.rusefi.output.ConfigStructure;
 import com.rusefi.parse.TypesHelper;
 import com.rusefi.tune.xml.Constant;
 import com.rusefi.tune.xml.Msq;
-import com.rusefi.xml.XmlUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.xml.bind.JAXBException;
+import jakarta.xml.bind.JAXBException;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -23,14 +22,11 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.util.Arrays;
-import java.util.Objects;
-import java.util.Set;
-import java.util.TreeSet;
+import java.util.*;
 
 import static com.devexperts.logging.Logging.getLogging;
 import static com.rusefi.ConfigFieldImpl.unquote;
-import static com.rusefi.config.Field.niceToString;
+import static com.rusefi.config.StringFormatter.niceToString;
 
 /**
  * this command line utility compares two TS calibration files and produces .md files with C++ source code of the difference between those two files.
@@ -40,7 +36,7 @@ import static com.rusefi.config.Field.niceToString;
  * <p>
  * [CannedTunes]
  * <p>
- * see <a href="https://github.com/rusefi/rusefi/wiki/Canned-Tune-Process">...</a>
+ * see <a href="https://wiki.rusefi.com/Canned-Tune-Process">...</a>
  */
 public class TuneCanTool {
     private static final Logging log = getLogging(TuneCanTool.class);
@@ -55,7 +51,7 @@ public class TuneCanTool {
     // see write_tune.sh for env variable to property mapping
     static final String ENGINE_TUNE_OUTPUT_FOLDER = System.getProperty("ENGINE_TUNE_OUTPUT_FOLDER", "../simulator/generated/");
     private static final String EXTENSION = ".cpp";
-    public static String boardPath = "config/boards/hellen/uaefi/";
+    public static String boardPath = new File("config/boards/hellen/uaefi/").getAbsolutePath();
 
     protected static IniFileModel ini;
 
@@ -321,7 +317,7 @@ public class TuneCanTool {
 
                 int ordinal;
                 try {
-                    ordinal = TuneTools.resolveEnumByName(customEnum, unquote(customValue.getValue()));
+                    ordinal = TuneTools.resolveEnumByName(customEnum, unquote(customValue.getValue()), ini.getDefines());
                 } catch (IllegalStateException e) {
                     log.info("Looks like things were renamed: " + customValue.getValue() + " not found in " + customEnum);
                     continue;
@@ -340,6 +336,7 @@ public class TuneCanTool {
             if (isInteger) {
                 sb.append(TuneTools.getAssignmentCode(defaultValue, parentReference, cName, Integer.toString(intValue)));
             } else {
+                // todo: use precision here?
                 sb.append(TuneTools.getAssignmentCode(defaultValue, parentReference, cName, niceToString(doubleValue)));
             }
 
@@ -462,3 +459,4 @@ public class TuneCanTool {
         return HARDWARE_PROPERTIES.contains(name);
     }
 }
+

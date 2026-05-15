@@ -48,7 +48,11 @@ static void reset_and_jump(void) {
 		// H7 needs a forcible reset of the USB peripheral(s) in order for the bootloader to work properly.
 		// If you don't do this, the bootloader will execute, but USB doesn't work (nobody knows why)
 		// See https://community.st.com/s/question/0D53W00000vQEWsSAO/stm32h743-dfu-entry-doesnt-work-unless-boot0-held-high-at-poweron
+	#ifdef STM32H723xx
+		RCC->AHB1ENR &= ~(RCC_AHB1ENR_USB1OTGHSEN);
+	#else
 		RCC->AHB1ENR &= ~(RCC_AHB1ENR_USB1OTGHSEN | RCC_AHB1ENR_USB2OTGFSEN);
+	#endif
 	#endif
 
 	// and now reboot
@@ -150,6 +154,8 @@ void startWatchdog(int timeoutMs) {
 }
 
 static efitimems_t watchdogResetPeriodMs = 0;
+// Reset watchod reset counted in SharedParams after this delay
+static const efitimems_t watchdogCounterResetDelay = 3000;
 
 void setWatchdogResetPeriod(int resetMs) {
 #if 0
@@ -161,11 +167,22 @@ void setWatchdogResetPeriod(int resetMs) {
 void tryResetWatchdog() {
 #if HAL_USE_WDG
 	static Timer lastTimeWasReset;
+	static efitimems_t wdUptime = 0;
 	// check if it's time to reset the watchdog
 	if (lastTimeWasReset.hasElapsedMs(watchdogResetPeriodMs)) {
 		// we assume tryResetWatchdog() is called from a timer callback
 		wdgResetI(&WDGD1);
 		lastTimeWasReset.reset();
+		// with 100 ms WD
+		if (wdUptime < watchdogCounterResetDelay) {
+			wdUptime += watchdogResetPeriodMs;
+			// we just crossed the treshold
+			if (wdUptime >= watchdogCounterResetDelay) {
+#if EFI_USE_OPENBLT
+				SharedParamsWriteByIndex(1, 0);
+#endif
+			}
+		}
 	}
 #endif // HAL_USE_WDG
 }
@@ -179,7 +196,13 @@ void baseMCUInit() {
 	// looks like this holds a random value on start? Let's set a nice clean zero
 	DWT->CYCCNT = 0;
 
+
+#ifndef EFI_SKIP_BOR
 	BOR_Set(BOR_Level_1); // one step above default value
+#else
+  BOR_Set(BOR_Level_None);
+#endif
+
 #ifndef EFI_BOOTLOADER
 	engine->outputChannels.mcuSerial = getMcuSerial();
 #endif // EFI_BOOTLOADER
@@ -256,6 +279,29 @@ void boardPreparePA0ForStandby() {
 
 PUBLIC_API_WEAK void boardPrepareForStandby() {
 	boardPreparePA0ForStandby();
+}
+
+void assertInterruptPriority(const char* func, uint8_t expectedPrio) {
+	auto isr = static_cast<uint8_t>(SCB->ICSR & SCB_ICSR_VECTACTIVE_Msk) - 16;
+
+	auto actualMask = NVIC->IP[isr];
+	auto expectedMask = NVIC_PRIORITY_MASK(expectedPrio);
+
+	if (actualMask != expectedMask) {
+		firmwareError(ObdCode::RUNTIME_CRITICAL_WRONG_IRQ_PRIORITY, "bad isr priority at %s expected %02x got %02x", func, expectedMask, actualMask);
+	}
+}
+
+const char *getStm32McuName(int mcuRevision) {
+  switch (mcuRevision) {
+    case STM32_DEVICE_ID_F40x: // x413
+      return "F40x";
+    case STM32_DEVICE_ID_F42x: // x419
+      return "F42x";
+    case 1105:
+      return "F7";
+  }
+  return "unknown";
 }
 
 #endif // EFI_PROD_CODE

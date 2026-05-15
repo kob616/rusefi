@@ -66,7 +66,7 @@ static struct tle9201_config tle9201 = {
 	}
 };
 
-void setBoardConfigOverrides() {
+static void hellen154hyundai_f7_boardConfigOverrides() {
 	/* Force 3.3V PWR_EN as MC33810 is powered from this power line */
 	setHellenMegaEnPin();
 
@@ -93,11 +93,11 @@ void setBoardConfigOverrides() {
 /**
  * @brief   Board-specific configuration defaults.
  *
- * See also setDefaultEngineConfiguration
+
  *
 
  */
-void setBoardDefaultConfiguration() {
+static void hellen154hyundai_f7_boardDefaultConfiguration() {
 	setInjectorPins();
 	setIgnitionPins();
 
@@ -234,5 +234,7 @@ Gpio* getBoardMetaOutputs() {
 
 void setup_custom_board_overrides() {
 	custom_board_InitHardware = hellen154hyundai_f7_boardInitHardware;
+	custom_board_DefaultConfiguration = hellen154hyundai_f7_boardDefaultConfiguration;
+	custom_board_ConfigOverrides = hellen154hyundai_f7_boardConfigOverrides;
 }
 

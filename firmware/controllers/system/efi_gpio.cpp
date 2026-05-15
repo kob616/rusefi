@@ -150,6 +150,7 @@ EnginePins::EnginePins() :
 		acRelay("A/C Relay", CONFIG_PIN_OFFSETS(acRelay)),
 		fuelPumpRelay("Fuel pump Relay", CONFIG_PIN_OFFSETS(fuelPump)),
 		nitrousRelay("Nitrous Relay", CONFIG_PIN_OFFSETS(nitrousRelay)),
+		vvlRelay("VVL Relay", CONFIG_PIN_OFFSETS(vvlRelay)),
 #if EFI_HD_ACR
 		harleyAcr("Harley ACR", CONFIG_OFFSET(acrPin)),
 		harleyAcr2("Harley ACR 2", CONFIG_OFFSET(acrPin2)),
@@ -444,9 +445,9 @@ void NamedOutputPin::setHigh(const char *msg) {
 		efiPrintf("pin %s goes high", name);
 	}
 #endif // EFI_UNIT_TEST
-#if EFI_DEFAILED_LOGGING
+#if EFI_DETAILED_LOGGING
 //	signal->hi_time = hTimeNow();
-#endif /* EFI_DEFAILED_LOGGING */
+#endif /* EFI_DETAILED_LOGGING */
 
 	// turn the output level ACTIVE
 	setValue(msg, true);
@@ -553,6 +554,7 @@ void IgnitionOutputPin::setLow() {
 
 void IgnitionOutputPin::reset() {
 	signalFallSparkId = 0;
+	currentLogicValue = INITIAL_PIN_STATE;
 }
 
 bool OutputPin::isInitialized() const {

@@ -55,11 +55,11 @@ static const char COMMA_SEPARATOR[2] = ",";
  */
 double CsvReader::readTimestampAndValues(double *values) {
 	char *timeStampstr = readFirstTokenAndRememberInputString(buffer);
-	double timeStamp = std::stod(timeStampstr);
+	double timeStamp = std::atof(timeStampstr);
 
 	for (size_t i = 0; i < m_triggerCount; i++) {
 		char *triggerToken = readNextToken();
-		values[i] = std::stod(triggerToken);
+		values[i] = std::atof(triggerToken);
 	}
 
 	return timeStamp;
@@ -85,7 +85,7 @@ void CsvReader::processLine(EngineTestHelper *eth) {
 
 	for (size_t i = 0;i<m_triggerCount;i++) {
 		char * triggerToken = readNextToken();
-		newTriggerState[triggerColumnIndeces[i]] = triggerToken[0] == '1';
+		newTriggerState[triggerColumnIndeces[i]] = triggerToken != nullptr && triggerToken[0] == '1';
 	}
 
 	for (size_t i = 0;i<m_vvtCount;i++) {
@@ -93,8 +93,7 @@ void CsvReader::processLine(EngineTestHelper *eth) {
 		if (vvtToken == nullptr) {
 			criticalError("Null token in [%s]", buffer);
 		}
-		bool state = vvtToken[0] == '1';
-		newVvtState[vvtColumnIndeces[i]] = state;
+		newVvtState[vvtColumnIndeces[i]] = vvtToken[0] == '1';
 	}
 
 	if (timeStampstr == nullptr) {
@@ -102,7 +101,7 @@ void CsvReader::processLine(EngineTestHelper *eth) {
 		return;
 	}
 
-	double timeStamp = std::stod(timeStampstr);
+	double timeStamp = std::atof(timeStampstr);
 	history.add(timeStamp);
 
 	timeStamp += m_timestampOffset;
@@ -123,12 +122,7 @@ void CsvReader::processLine(EngineTestHelper *eth) {
 		}
 
 		efitick_t nowNt = getTimeNowNt();
-        bool state;
-		if (index == 0) {
-		    state = newTriggerState[index] ^ flipOnRead ^ engineConfiguration->invertPrimaryTriggerSignal;
-		} else {
-		    state = newTriggerState[index] ^ flipOnRead ^ engineConfiguration->invertSecondaryTriggerSignal;
-		}
+		bool state = newTriggerState[index] ^ flipOnRead;
 		hwHandleShaftSignal(index, state, nowNt);
 
 		currentState[index] = newTriggerState[index];
@@ -140,7 +134,8 @@ void CsvReader::processLine(EngineTestHelper *eth) {
 		}
 
 		efitick_t nowNt = getTimeNowNt();
-		TriggerValue event = newVvtState[vvtIndex] ^ flipVvtOnRead ^ engineConfiguration->invertCamVVTSignal ? TriggerValue::RISE : TriggerValue::FALL;
+		bool state = newVvtState[vvtIndex] ^ flipVvtOnRead;
+
 		// todo: configurable selection of vvt mode - dual bank or dual cam single bank
 		int bankIndex;
 		int camIndex;
@@ -151,7 +146,7 @@ void CsvReader::processLine(EngineTestHelper *eth) {
 			bankIndex = vvtIndex / 2;
 			camIndex = vvtIndex % 2;
 		}
-		hwHandleVvtCamSignal(event, nowNt, bankIndex *2 + camIndex);
+		hwHandleVvtCamSignal(state, nowNt, bankIndex *2 + camIndex);
 
 		currentVvtState[vvtIndex] = newVvtState[vvtIndex];
 

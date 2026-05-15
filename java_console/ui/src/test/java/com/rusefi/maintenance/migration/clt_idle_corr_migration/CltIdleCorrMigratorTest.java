@@ -1,15 +1,15 @@
 package com.rusefi.maintenance.migration.clt_idle_corr_migration;
 
 import com.rusefi.maintenance.TestTuneMigrationContext;
-import com.rusefi.maintenance.migration.ComposedTuneMigrator;
+import com.rusefi.maintenance.migration.migrators.ComposedTuneMigrator;
 import com.rusefi.maintenance.migration.default_migration.DefaultTestTuneMigrationContext;
 import com.rusefi.tune.xml.Constant;
 import org.junit.jupiter.api.Test;
 
-import javax.xml.bind.JAXBException;
+import jakarta.xml.bind.JAXBException;
 import java.util.Map;
 
-import static com.rusefi.maintenance.migration.CltIdleCorrMigrator.*;
+import static com.rusefi.maintenance.migration.migrators.CltIdleCorrMigrator.*;
 import static com.rusefi.maintenance.migration.clt_idle_corr_migration.CltIdleCorrMigrationTestTuneMigrationContext.TEST_PREV_CLT_IDLE_CORR_BINS_VALUE;
 import static com.rusefi.maintenance.migration.default_migration.DefaultTestTuneMigrationContext.*;
 import static org.junit.jupiter.api.Assertions.*;
@@ -43,7 +43,7 @@ public class CltIdleCorrMigratorTest {
             final Constant migratedCltIdleCorrValue = migratedConstants.get(CLT_IDLE_CORR_FIELD_NAME);
             assertNotNull(migratedCltIdleCorrValue);
             assertEquals(CLT_IDLE_CORR_FIELD_NAME, migratedCltIdleCorrValue.getName());
-            assertNull(migratedCltIdleCorrValue.getUnits());
+            assertEquals("%", migratedCltIdleCorrValue.getUnits());
             assertEquals(
                 "\n" +
                     "         75.0\n" +
@@ -108,3 +108,4 @@ public class CltIdleCorrMigratorTest {
         }
     }
 }
+

@@ -2,7 +2,7 @@ package com.rusefi.tune;
 
 import com.devexperts.logging.Logging;
 import com.opensr5.ini.IniFileModel;
-import com.opensr5.ini.IniFileModelImpl;
+import com.rusefi.ini.reader.IniFileReaderUtil;
 import com.rusefi.*;
 import com.rusefi.tools.tune.TuneCanTool;
 import com.rusefi.tune.xml.Constant;
@@ -10,6 +10,8 @@ import com.rusefi.tune.xml.Msq;
 import com.rusefi.tune.xml.Page;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+
+import java.io.File;
 
 import static com.devexperts.logging.Logging.getLogging;
 import static com.rusefi.ConfigFieldImpl.unquote;
@@ -21,6 +23,9 @@ public class TuneCanToolTest {
     @BeforeAll
     public static void before() {
         RootHolder.ROOT = "../../firmware/";
+        // somewhere deep we have append prefix is not absolute path, so let's make path absolute
+        //TODO: check if there exists more elegant way to initialize `TuneCanTool.boardPath` properly
+        TuneCanTool.boardPath = new File(RootHolder.ROOT + "config/boards/hellen/uaefi/").getAbsolutePath() + File.separator;
     }
 
     @Test
@@ -31,7 +36,7 @@ public class TuneCanToolTest {
 
         Msq lessOldDefaultTune = Msq.readTune(TuneCanToolTest.class.getResource("/simulator_tune-2023-06.xml").getFile());
 
-        IniFileModel ini = IniFileModelImpl.readIniFile(TuneReadWriteTest.TEST_INI);
+        IniFileModel ini = IniFileReaderUtil.readIniFile(TuneReadWriteTest.TEST_INI);
         assertEquals(256, ini.getBlockingFactor());
         assertFalse(ini.getFieldsInUiOrder().isEmpty());
 
@@ -43,7 +48,7 @@ public class TuneCanToolTest {
             assertTrue(sb.indexOf("engineConfiguration->gppwm[1].loadAxis = GPPWM_Tps;") > 0);
             assertTrue(sb.indexOf("engineConfiguration->gppwm[2].loadAxis = GPPWM_Tps;") > 0);
             assertTrue(sb.indexOf("engineConfiguration->gppwm[3].loadAxis = GPPWM_Tps;") > 0);
-        } catch (final Exception e) {
+        } catch (Exception e) {
             System.err.print(String.format("TuneCanToolTest.testGPPWMTuneParse: Exception: %s", e.getMessage()));
             e.printStackTrace();
             throw e;

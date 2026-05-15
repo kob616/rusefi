@@ -92,6 +92,7 @@ public class Integration {
 	public static final int TS_COMPOSITE_DISABLE = 2;
 	public static final int TS_COMPOSITE_ENABLE = 1;
 	public static final int TS_COMPOSITE_READ = 3;
+	public static final char TS_CRC32_CHECK_COMMAND = 'K';
 	public static final char TS_CRC_CHECK_COMMAND = 'k';
 	public static final char TS_EXECUTE = 'E';
 	public static final char TS_GET_COMPOSITE_BUFFER_DONE_DIFFERENTLY = '8';
@@ -113,6 +114,7 @@ public class Integration {
 	public static final int TS_QUERY_BOOTLOADER_NONE = 0;
 	public static final int TS_QUERY_BOOTLOADER_OPENBLT = 1;
 	public static final char TS_QUERY_COMMAND = 'Q';
+	public static final char TS_READ32_COMMAND = '(';
 	public static final char TS_READ_COMMAND = 'R';
 	public static final int TS_RESPONSE_BURN_OK = 4;
 	public static final int TS_RESPONSE_CRC_FAILURE = 0x82;

@@ -31,6 +31,7 @@ public:
 	float injectionStage2Fraction = 0;
 
 	Timer crankingTimer{};
+	Timer undervoltageCrankingTimer{};
 
 	WarningCodeState warnings{};
 
@@ -84,4 +85,6 @@ public:
 EngineState * getEngineState();
 
 bool getClutchDownState();
+// 0 not pressed
+// 1 pressed
 bool getBrakePedalState();

@@ -27,7 +27,7 @@ Gpio getWarningLedPin() {
 }
 
 Gpio getCommsLedPin() {
-#ifdef HW_NOT_COMMUNITY_FRANKENSO
+#if defined(HW_NOT_COMMUNITY_FRANKENSO) || defined(EFI_BOOTLOADER)
   // not f407-discovery but f407-discovery while reusing board file
   return Gpio::A1;
 #else
@@ -56,7 +56,7 @@ static void configureAccelerometerPins() {
 /**
  * @brief	Hardware board-specific default configuration (GPIO pins, ADC channels, SPI configs etc.)
  */
-void setBoardDefaultConfiguration() {
+static void f407_discovery_DefaultConfiguration() {
 	setDefaultFrankensoStepperIdleParameters();
 	setCanFrankensoDefaults();
 
@@ -181,4 +181,5 @@ static const struct mc33810_config mc33810 = {
 
 void setup_custom_board_overrides() {
 	custom_board_InitHardware = f407_discovery_boardInitHardware;
+	custom_board_DefaultConfiguration = f407_discovery_DefaultConfiguration;
 }

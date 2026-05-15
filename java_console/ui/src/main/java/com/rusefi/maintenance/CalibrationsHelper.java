@@ -1,22 +1,24 @@
 package com.rusefi.maintenance;
 
 import com.devexperts.logging.Logging;
-import com.opensr5.ConfigurationImage;
-import com.opensr5.ConfigurationImageMetaVersion0_0;
-import com.opensr5.ConfigurationImageWithMeta;
+import com.opensr5.*;
 import com.opensr5.ini.IniFileModel;
 import com.opensr5.ini.field.*;
 import com.rusefi.ConnectivityContext;
+import com.rusefi.PortResult;
+import com.rusefi.SerialPortType;
 import com.rusefi.binaryprotocol.BinaryProtocol;
 import com.rusefi.binaryprotocol.BinaryProtocolLocalCache;
+import com.rusefi.binaryprotocol.IniNotFoundException;
 import com.rusefi.core.ui.AutoupdateUtil;
 import com.rusefi.io.UpdateOperationCallbacks;
-import com.rusefi.maintenance.migration.ComposedTuneMigrator;
+import com.rusefi.maintenance.migration.migrators.ComposedTuneMigrator;
 import com.rusefi.maintenance.migration.TuneMigrationContext;
+import com.rusefi.tune.ConfigurationImageGetterSetter2;
 import com.rusefi.tune.xml.Constant;
 import com.rusefi.tune.xml.Msq;
+import com.rusefi.ui.basic.MigrateSettingsCheckboxState;
 
-import javax.swing.*;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,50 +26,87 @@ import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import static com.devexperts.logging.Logging.getLogging;
-import static com.rusefi.binaryprotocol.BinaryProtocol.iniFileProvider;
-import static com.rusefi.binaryprotocol.BinaryProtocol.saveConfigurationImageToFiles;
+import static com.rusefi.maintenance.CallbacksWaitingUtil.waitForPredicate;
+import static com.rusefi.util.TuneBackupUtil.saveConfigurationImageToFiles;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
+import static java.util.Collections.emptySet;
 
 public class CalibrationsHelper {
     private static final Logging log = getLogging(CalibrationsHelper.class);
 
-    private static final String PREVIOUS_CALIBRATIONS_FILE_NAME_COMPONENT = "prev_calibrations";
-    private static final String UPDATED_CALIBRATIONS_FILE_NAME_COMPONENT = "updated_calibrations";
-    private static final String MERGED_CALIBRATIONS_FILE_NAME_COMPONENT = "merged_calibrations";
+    static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd-HH.mm.ss");
+    private static final String RUSEFI_FORCE_CALIBRATIONS_RESTORE = System.getenv("RUSEFI_FORCE_CALIBRATIONS_RESTORE");
 
-    private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-mm-dd-hh.mm.ss");
-
-    public static void main(final String[] args) {
+    public static void main(String[] args) {
+//        args = new String[] {"destinationFileName.xml", "COM34"};
         if (args.length != 2) {
             System.err.println("File name and port are expected as command line arguments!");
         } else {
-            final String fileName = args[0];
+            final String destinationFileName = args[0];
             final String port = args[1];
-            if (!readAndBackupCurrentCalibrations(port, UpdateOperationCallbacks.CONSOLE, fileName).isPresent()) {
+            Optional<CalibrationsInfo> calibrationsInfo = readAndBackupCurrentCalibrations(port, UpdateOperationCallbacks.CONSOLE, destinationFileName);
+            if (!calibrationsInfo.isPresent()) {
                 System.err.printf("Failed to read current calibrations from %s port%n", port);
+            } else {
+                backUpCalibrationsInfo(calibrationsInfo.get(), destinationFileName + "_", UpdateOperationCallbacks.CONSOLE);
             }
         }
     }
 
-    public static boolean updateFirmwareAndRestorePreviousCalibrations(
-        final JComponent parent,
-        final String ecuPort,
+    private static List<PortResult> waitForPortAppeared(
+        final SerialPortType desiredPortType,
         final UpdateOperationCallbacks callbacks,
-        final Supplier<Boolean> updateFirmware, ConnectivityContext connectivityContext
+        final ConnectivityContext connectivityContext
+    ) {
+        final List<PortResult> foundPorts = new ArrayList<>();
+        waitForPredicate(
+            String.format("Waiting for %s port to appear...", desiredPortType),
+            () -> {
+                final List<PortResult> knownPorts = connectivityContext.getCurrentHardware().getKnownPorts();
+                foundPorts.addAll(knownPorts.stream()
+                    .filter(p -> p.type == desiredPortType)
+                    .collect(Collectors.toList()));
+                if (!foundPorts.isEmpty()) {
+                    return true;
+                }
+                // Post-flash the scanner can probe the port while the ECU firmware is still
+                // booting and classify it as Unknown (or stale EcuWithOpenblt from before the
+                // reboot). The cache is otherwise sticky until the OS port disappears — force
+                // a re-probe by invalidating non-matching classifications so the scanner's
+                // next cycle re-inspects.
+                for (PortResult p : knownPorts) {
+                    if (p.type != desiredPortType) {
+                        connectivityContext.getSerialPortScanner().invalidatePort(p.port);
+                    }
+                }
+                return false;
+            },
+            callbacks
+        );
+        return foundPorts;
+    }
+
+
+    public static boolean updateFirmwareAndRestorePreviousCalibrations(
+        final PortResult originalEcuPort,
+        final UpdateOperationCallbacks callbacks,
+        final Supplier<Boolean> updateFirmware,
+        final ConnectivityContext connectivityContext
     ) {
         AutoupdateUtil.assertNotAwtThread();
 
-        final String timestampFoleNameComponent = DATE_FORMAT.format(new Date());
+        final String timestampFileNameComponent = DATE_FORMAT.format(new Date());
 
         final Optional<CalibrationsInfo> prevCalibrations = readAndBackupCurrentCalibrationsWithSuspendedPortScanner(
-            ecuPort,
+            originalEcuPort.port,
             callbacks,
-            getFileNameWithoutExtension(timestampFoleNameComponent, PREVIOUS_CALIBRATIONS_FILE_NAME_COMPONENT), connectivityContext
+            getFileNameWithoutExtension(timestampFileNameComponent, "backup_from_ecu"), connectivityContext
         );
         if (!prevCalibrations.isPresent()) {
-            callbacks.logLine("Failed to back up current calibrations...");
+            callbacks.logLine("Failed to back up current tune from ECU...");
             return false;
         }
 
@@ -75,46 +114,171 @@ public class CalibrationsHelper {
             return false;
         }
 
-        final Optional<CalibrationsInfo> updatedCalibrations = readAndBackupCurrentCalibrationsWithSuspendedPortScanner(
-            ecuPort,
+        final List<PortResult> ecuPortsAfterFirmwareUpdate = waitForPortAppeared(
+            originalEcuPort.type,
             callbacks,
-            getFileNameWithoutExtension(timestampFoleNameComponent, UPDATED_CALIBRATIONS_FILE_NAME_COMPONENT), connectivityContext
+            connectivityContext
         );
-        if (!updatedCalibrations.isPresent()) {
-            callbacks.logLine("Failed to back up updated calibrations...");
-            return false;
-        }
-        final Optional<CalibrationsInfo> mergedCalibrations = mergeCalibrations(
-            prevCalibrations.get(),
-            updatedCalibrations.get(),
-            callbacks
-        );
-        if (mergedCalibrations.isPresent() && (JOptionPane.showConfirmDialog(
-            parent,
-            "Some calibrations fields were overwritten with default values.\n" +
-                "Would you like to restore previous calibrations?",
-            "Restore previous calibrations",
-            JOptionPane.YES_NO_OPTION
-        ) == JOptionPane.YES_OPTION)) {
-            if (!backUpCalibrationsInfo(
-                mergedCalibrations.get(),
-                getFileNameWithoutExtension(timestampFoleNameComponent, MERGED_CALIBRATIONS_FILE_NAME_COMPONENT),
-                callbacks
-            )) {
-                callbacks.logLine("Failed to back up merged calibrations...");
+        switch (ecuPortsAfterFirmwareUpdate.size()) {
+            case 0: {
+                callbacks.logLine("No ECU found after firmware update...");
                 return false;
             }
-            return CalibrationsUpdater.INSTANCE.updateCalibrations(
-                ecuPort,
-                mergedCalibrations.get().getImage().getConfigurationImage(),
-                callbacks, connectivityContext
-            );
-        } else {
-            return true;
+            case 1: {
+                final PortResult newEcuPort = ecuPortsAfterFirmwareUpdate.get(0);
+                callbacks.logLine(String.format(
+                    "ECU is found on port %s after firmware update.",
+                    newEcuPort.port
+                ));
+
+                // The ECU's USB can briefly drop and re-enumerate right after the
+                // scanner's probe. Retry a few times to ride out that transient window.
+                Optional<CalibrationsInfo> updatedCalibrations = Optional.empty();
+                for (int attempt = 1; attempt <= 3 && !updatedCalibrations.isPresent(); attempt++) {
+                    if (attempt > 1) {
+                        callbacks.logLine("Retrying calibration read after firmware update (attempt " + attempt + ")...");
+                        BinaryProtocol.sleep(5_000);
+                    }
+                    updatedCalibrations = readAndBackupCurrentCalibrationsWithSuspendedPortScanner(
+                        newEcuPort.port,
+                        callbacks,
+                        getFileNameWithoutExtension(timestampFileNameComponent, "after_firmware_update"), connectivityContext
+                    );
+                }
+                if (!updatedCalibrations.isPresent()) {
+                    callbacks.logLine("Failed to back up tune from ECU after firmware update...");
+                    return false;
+                }
+                final Optional<CalibrationsInfo> mergedCalibrations = mergeCalibrations(
+                    prevCalibrations.get().getIniFile(),
+                    prevCalibrations.get().generateMsq(),
+                    updatedCalibrations.get(),
+                    callbacks,
+                    emptySet()
+                );
+                if (mergedCalibrations.isPresent() && MigrateSettingsCheckboxState.isMigrationNeeded) {
+                    if (!backUpCalibrationsInfo(
+                        mergedCalibrations.get(),
+                        getFileNameWithoutExtension(timestampFileNameComponent, "merged_to_write"),
+                        callbacks
+                    )) {
+                        callbacks.logLine("Failed to back up merged tune before writing to ECU...");
+                        return false;
+                    }
+                    if (!CalibrationsUpdater.INSTANCE.updateCalibrations(
+                        newEcuPort.port,
+                        mergedCalibrations.get().getImage().getConfigurationImage(),
+                        callbacks,
+                        connectivityContext
+                    )) {
+                        callbacks.logLine("Failed to write merged tune to ECU...");
+                        return false;
+                    }
+                    final Optional<CalibrationsInfo> mergedTuneFromEcu = readAndBackupCurrentCalibrationsWithSuspendedPortScanner(
+                        newEcuPort.port,
+                        callbacks,
+                        getFileNameWithoutExtension(timestampFileNameComponent, "merged_from_ecu"),
+                        connectivityContext
+                    );
+                    if (!mergedTuneFromEcu.isPresent()) {
+                        callbacks.logLine("Failed to back up merged tune from ECU...");
+                        return false;
+                    }
+                }
+                return true;
+            }
+            default: {
+                callbacks.logLine(String.format(
+                    "Multiple ECU-s are found after firmware update on ports %s...",
+                    ecuPortsAfterFirmwareUpdate.stream()
+                        .map(portResult -> portResult.port)
+                        .collect(Collectors.joining(", "))
+                ));
+                return false;
+            }
         }
     }
 
-    private static String getFileNameWithoutExtension(
+    public static boolean importTune(
+        final String ecuPort,
+        final Msq msqToImport,
+        final UpdateOperationCallbacks callbacks,
+        final ConnectivityContext connectivityContext
+    ) {
+        AutoupdateUtil.assertNotAwtThread();
+
+        final String signature = msqToImport.versionInfo.getSignature();
+        final IniFileModel iniFileToImport;
+        try {
+            iniFileToImport = BinaryProtocol.iniFileProvider.provide(signature);
+        } catch (IniNotFoundException e) {
+            callbacks.logLine(String.format("We failed to get .ini file for signature `%s`", signature));
+            return false;
+        }
+
+        final String timestampFileNameComponent = DATE_FORMAT.format(new Date());
+
+        if (!backupTune(
+            iniFileToImport,
+            msqToImport,
+            getFileNameWithoutExtension(timestampFileNameComponent, "tune_to_import"),
+            callbacks
+        )) {
+            callbacks.logLine("Failed to back up tune to import...");
+            return false;
+        }
+
+        final Optional<CalibrationsInfo> prevTune = readAndBackupCurrentCalibrationsWithSuspendedPortScanner(
+            ecuPort,
+            callbacks,
+            getFileNameWithoutExtension(timestampFileNameComponent, "backup_from_ecu"), connectivityContext
+        );
+        if (!prevTune.isPresent()) {
+            callbacks.logLine("Failed to back up current tune from ECU...");
+            return false;
+        }
+
+        final Optional<CalibrationsInfo> mergedTune = mergeCalibrations(
+            iniFileToImport,
+            msqToImport,
+            prevTune.get(),
+            callbacks,
+            // we do not want to import `vinNumber` ini-field
+            new HashSet<>(Collections.singletonList("vinNumber"))
+        );
+        if (mergedTune.isPresent()) {
+            if (!backUpCalibrationsInfo(
+                mergedTune.get(),
+                getFileNameWithoutExtension(timestampFileNameComponent, "merged_to_write"),
+                callbacks
+            )) {
+                callbacks.logLine("Failed to back up merged tune...");
+                return false;
+            }
+            if (!CalibrationsUpdater.INSTANCE.updateCalibrations(
+                ecuPort,
+                mergedTune.get().getImage().getConfigurationImage(),
+                callbacks,
+                connectivityContext
+            )) {
+                callbacks.logLine("Failed to write merged tune to ECU...");
+                return false;
+            }
+            final Optional<CalibrationsInfo> mergedTuneFromEcu = readAndBackupCurrentCalibrationsWithSuspendedPortScanner(
+                ecuPort,
+                callbacks,
+                getFileNameWithoutExtension(timestampFileNameComponent, "merged_from_ecu"),
+                connectivityContext
+            );
+            if (!mergedTuneFromEcu.isPresent()) {
+                callbacks.logLine("Failed to back up merged tune from ECU...");
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static String getFileNameWithoutExtension(
         final String timestampNameComponent,
         final String fileNameComponent
     ) {
@@ -125,6 +289,7 @@ public class CalibrationsHelper {
         );
     }
 
+    // right now we only load first page, one day soon LTFT would ask for other pages!
     private static Optional<CalibrationsInfo> readCalibrationsInfo(
         final BinaryProtocol binaryProtocol,
         final UpdateOperationCallbacks callbacks) {
@@ -135,7 +300,13 @@ public class CalibrationsHelper {
                 return Optional.empty();
             }
             callbacks.logLine(String.format("Received a signature %s", signature));
-            final IniFileModel iniFile = iniFileProvider.provide(signature);
+            final IniFileModel iniFile;
+            try {
+                iniFile = BinaryProtocol.iniFileProvider.provide(signature);
+            } catch (IniNotFoundException e) {
+                throw new RuntimeException(e);
+            }
+            Objects.requireNonNull(iniFile);
             final int pageSize = iniFile.getMetaInfo().getPageSize(0);
             callbacks.logLine(String.format("Page size is %d", pageSize));
             final ConfigurationImageMetaVersion0_0 meta = ConfigurationImageMetaVersion0_0.getMeta(iniFile);
@@ -149,7 +320,41 @@ public class CalibrationsHelper {
         }
     }
 
-    private static boolean backUpCalibrationsInfo(
+    private static boolean backupTune(
+        final IniFileModel ini,
+        final Msq msq,
+        final String fileName,
+        final UpdateOperationCallbacks callbacks
+    )  {
+        try {
+            final String iniFileName = String.format("%s.ini", fileName);
+            final Path iniFilePath = Paths.get(ini.getIniFilePath());
+            callbacks.logLine(String.format("Backing up ini-file `%s`...", iniFilePath));
+            Files.copy(
+                iniFilePath,
+                Paths.get(iniFileName),
+                REPLACE_EXISTING
+            );
+            callbacks.logLine(String.format(
+                "`%s` ini-file is backed up as `%s`",
+                iniFilePath.getFileName(),
+                iniFileName
+            ));
+
+            final String msqFileName = String.format("%s.msq", fileName);
+            callbacks.logLine(String.format("Backing up msq-file to %s...", msqFileName));
+            msq.writeXmlFile(msqFileName);
+            callbacks.logLine(String.format("msq-file is backed up as `%s`", msqFileName));
+
+            return true;
+        } catch (final Exception e) {
+            log.error("Backing up tune failed:", e);
+            callbacks.logLine("Backing up tune failed: " + e);
+            return false;
+        }
+    }
+
+    public static boolean backUpCalibrationsInfo(
         final CalibrationsInfo calibrationsInfo,
         final String fileName,
         final UpdateOperationCallbacks callbacks
@@ -169,6 +374,7 @@ public class CalibrationsHelper {
                 iniFilePath.getFileName(),
                 iniFileName
             ));
+
             final String zipFileName = String.format("%s.zip", fileName);
             final String msqFileName = String.format("%s.msq", fileName);
             callbacks.logLine(String.format(
@@ -206,8 +412,8 @@ public class CalibrationsHelper {
                     return Optional.empty();
                 }
             },
-            Optional.empty(), connectivityContext
-        );
+            Optional.empty(), connectivityContext,
+            "readCalibrationsInfo");
     }
 
     public static Optional<CalibrationsInfo> readCurrentCalibrationsWithoutSuspendingPortScanner(
@@ -227,8 +433,8 @@ public class CalibrationsHelper {
                 }
             },
             Optional.empty(),
-            true
-        );
+            true,
+            "readCalibrationsInfo");
     }
 
     public static Optional<CalibrationsInfo> readAndBackupCurrentCalibrationsWithSuspendedPortScanner(
@@ -242,8 +448,8 @@ public class CalibrationsHelper {
             callbacks,
             binaryProtocol -> readAndBackupCurrentCalibrations(binaryProtocol, callbacks, backupFileName),
             Optional.empty(),
-            connectivityContext
-        );
+            connectivityContext,
+            "readAndBackupCurrentCalibrations");
     }
 
     private static Optional<CalibrationsInfo> readAndBackupCurrentCalibrations(
@@ -256,9 +462,10 @@ public class CalibrationsHelper {
             callbacks,
             binaryProtocol -> readAndBackupCurrentCalibrations(binaryProtocol, callbacks, backupFileName),
             Optional.empty(),
-            false
-        );
+            false,
+            "readAndBackupCurrentCalibrations");
     }
+
     private static Optional<CalibrationsInfo> readAndBackupCurrentCalibrations(
         final BinaryProtocol binaryProtocol,
         final UpdateOperationCallbacks callbacks,
@@ -285,13 +492,13 @@ public class CalibrationsHelper {
     }
 
     public static Optional<CalibrationsInfo> mergeCalibrations(
-        final CalibrationsInfo prevCalibrations,
+        final IniFileModel prevIniFile,
+        final Msq prevMsq,
         final CalibrationsInfo newCalibrations,
-        final UpdateOperationCallbacks callbacks
+        final UpdateOperationCallbacks callbacks,
+        final Set<String> additionalIniFieldsToIgnore
     ) {
         Optional<CalibrationsInfo> result = Optional.empty();
-        final IniFileModel prevIniFile = prevCalibrations.getIniFile();
-        final Msq prevMsq = prevCalibrations.generateMsq();
         final IniFileModel newIniFile = newCalibrations.getIniFile();
         final Msq newMsq = newCalibrations.generateMsq();
 
@@ -300,7 +507,8 @@ public class CalibrationsHelper {
             prevMsq,
             newIniFile,
             newMsq,
-            callbacks
+            callbacks,
+            additionalIniFieldsToIgnore
         );
         ComposedTuneMigrator.INSTANCE.migrateTune(context);
         final Set<Map.Entry<String, Constant>> valuesToUpdate = context.getMigratedConstants().entrySet();
@@ -311,7 +519,15 @@ public class CalibrationsHelper {
                 final Constant migratedValue = valueToUpdate.getValue();
                 final Optional<IniField> fieldToUpdate = newIniFile.findIniField(migratedFieldName);
                 if (fieldToUpdate.isPresent()) {
-                    fieldToUpdate.get().setValue(mergedImage, migratedValue);
+                    try {
+                        ConfigurationImageGetterSetter2.setValue(fieldToUpdate.get(), mergedImage, migratedValue);
+                    } catch (Throwable e) {
+                        log.error(
+                            String.format("We failed to set value %s for ini-field %s", migratedValue, fieldToUpdate),
+                            e
+                        );
+                        throw new IllegalStateException("Unexpected during " + migratedValue, e);
+                    }
                     callbacks.logLine(String.format(
                         "To restore previous calibrations we are going to update the field `%s` with a value `%s`",
                         migratedFieldName,
@@ -335,7 +551,7 @@ public class CalibrationsHelper {
                 newIniFile,
                 new ConfigurationImageWithMeta(newCalibrations.getImage().getMeta(), mergedImage.getContent())
             ));
-        } else if ("true".equals(System.getenv("RUSEFI_FORCE_CALIBRATIONS_RESTORE"))) {
+        } else if ("true".equalsIgnoreCase(RUSEFI_FORCE_CALIBRATIONS_RESTORE)) {
             callbacks.logLine("It looks like we do not need to update previous calibrations, but for debugging we are going to rewrite to ECU new calibrations again.");
             result = Optional.of(newCalibrations);
         } else {

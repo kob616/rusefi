@@ -1,5 +1,6 @@
 package com.opensr5.ini;
 
+import com.rusefi.ini.reader.IniFileReaderUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -31,13 +32,18 @@ public class RawIniFile {
         this.msg = msg;
 
         for (Line line : lines) {
-            if (line.tokens.length > 1)
-                asSet.put(line.tokens[0], line);
+            if (line.tokens.length > 1) {
+                String key = line.tokens[0];
+                if (!asSet.containsKey(key)) {
+                    // odd API: we want to use *first* occurrence of specific key (that's important at least for signature)
+                    asSet.put(key, line);
+                }
+            }
         }
     }
 
     public static RawIniFile read(String fileName) throws FileNotFoundException {
-        return IniFileReader.read(new FileInputStream(fileName));
+        return IniFileReaderUtil.read(new FileInputStream(fileName));
     }
 
     @NotNull
@@ -89,7 +95,7 @@ public class RawIniFile {
 
         public Line(String rawText) {
             this.rawText = rawText;
-            tokens = IniFileReader.splitTokens(rawText);
+            tokens = IniFileReaderUtil.splitTokens(rawText);
         }
 
         public String[] getTokens() {

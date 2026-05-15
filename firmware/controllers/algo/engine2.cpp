@@ -19,6 +19,8 @@
 #include "injector_model.h"
 #include "tunerstudio.h"
 
+#include "rusefi/efistring.h"
+
 #if ! EFI_UNIT_TEST
 #include "status_loop.h"
 #endif
@@ -33,12 +35,11 @@ void WarningCodeState::clear() {
 	recentWarnings.clear();
 }
 
-void WarningCodeState::addWarningCode(ObdCode code) {
+void WarningCodeState::addWarningCode(ObdCode code, const char *text) {
 	warningCounter++;
 	lastErrorCode = code;
 
 	warning_t* existing = recentWarnings.find(code);
-
 	if (!existing) {
 		chibios_rt::CriticalSectionLocker csl;
 
@@ -49,10 +50,62 @@ void WarningCodeState::addWarningCode(ObdCode code) {
 	if (existing) {
 		// Reset the timer on the code to now
 		existing->LastTriggered.reset();
+
+		// no pending message? lets try to add this
+		if ((m_msgWarning == nullptr) && (text)) {
+			strlncpy(m_msg, text, sizeof(m_msg));
+			m_msgWarning = existing;
+		}
 	}
 
 	// Reset the "any warning" timer too
 	timeSinceLastWarning.reset();
+}
+
+void WarningCodeState::refreshTs() {
+	output_channels_s *tsOutputChannels = &engine->outputChannels;
+	const int period = maxI(3, engineConfiguration->warningPeriod);
+
+	// TODO: do we neet this sticky warning code?
+	tsOutputChannels->warningCounter = engine->engineState.warnings.warningCounter;
+	tsOutputChannels->lastErrorCode = static_cast<uint16_t>(engine->engineState.warnings.lastErrorCode);
+
+	// TODO: fix OBD codes "jumping" between positions when one of codes disapears
+
+	size_t i = 0;
+	for (size_t j = 0; j < recentWarnings.getCount(); j++) {
+		warning_t& warn = recentWarnings.get(j);
+		if (warn.Code != ObdCode::None) {
+			if (!warn.LastTriggered.hasElapsedSec(period)) {
+				if (i < efi::size(tsOutputChannels->recentErrorCode)) {
+					tsOutputChannels->recentErrorCode[i] = static_cast<uint16_t>(warn.Code);
+					i++;
+				}
+			} else {
+				// warning message is outdated, stop showing to TS
+				if (m_msgWarning == &warn) {
+					m_msg[0] = 0;
+					m_msgWarning = nullptr;
+				}
+				// TODO:
+				// reset warning as it is outdated
+			}
+		}
+	}
+
+	// reset rest
+	for ( ; i < efi::size(tsOutputChannels->recentErrorCode); i++) {
+		tsOutputChannels->recentErrorCode[i] = 0;
+	}
+}
+
+bool WarningCodeState::hasWarningMessage() {
+	// Do we have any error code to show as text?
+	return (m_msgWarning != nullptr);
+}
+
+const char* WarningCodeState::getWarningMessage() {
+	return m_msg;
 }
 
 /**
@@ -188,6 +241,7 @@ void EngineState::periodicFastCallback() {
 	// Now apply that to per-cylinder fueling and timing
 	for (size_t cylinderIndex = 0; cylinderIndex < engineConfiguration->cylindersCount; cylinderIndex++) {
 		uint8_t bankIndex = engineConfiguration->cylinderBankSelect[cylinderIndex];
+    efiAssertVoid(ObdCode::CUSTOM_OBD_BAD_BANK_INDEX, bankIndex < FT_BANK_COUNT, "bankIndex");
 		/* TODO: add LTFT trims when ready */
 		auto bankTrim = clResult.banks[bankIndex] * ltftResult.banks[bankIndex];
 		auto cylinderTrim = getCylinderFuelTrim(cylinderIndex, rpm, fuelLoad);

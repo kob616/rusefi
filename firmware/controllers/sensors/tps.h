@@ -13,7 +13,7 @@
 #include "engine_configuration.h"
 
 // Scaled to 1000 counts = 5.0 volts
-#define TPS_TS_CONVERSION 200
+#define TPS_TS_CONVERSION (1 / PACK_MULT_RAW_VOLTAGE)
 
 // we have this '100'  magic constant too often for two many other reasons todo: refactor further?
 #define POSITION_FULLY_OPEN 100
@@ -25,6 +25,8 @@ constexpr inline int convertVoltageTo10bitADC(float voltage) {
 void grabTPSIsClosed();
 void grabTPSIsWideOpen();
 void grabPedalIsUp();
+void grapTps1PrimaryIsClosed();
+void grapTps1PrimaryIsOpen();
 void grabPedalIsWideOpen();
 
 #if EFI_SENT_SUPPORT

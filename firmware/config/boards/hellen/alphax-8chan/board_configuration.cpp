@@ -87,7 +87,7 @@ static void alphax_8chan_boardInitHardware() {
 	tempPullUp.initPin("Temp PullUp", Gpio::MM176_OUT_IO12);
 }
 
-void boardOnConfigurationChange(engine_configuration_s * /*previousConfiguration*/) {
+static void customBoardOnConfigurationChange(engine_configuration_s * /*previousConfiguration*/) {
 	alphaCrankPPullUp.setValue(config->boardUseCrankPullUp);
 	alphaHall1PullDown.setValue(config->boardUseH1PullDown);
 	alphaHall2PullDown.setValue(config->boardUseH2PullDown);
@@ -98,23 +98,21 @@ void boardOnConfigurationChange(engine_configuration_s * /*previousConfiguration
 	tempPullUp.setValue(config->boardUseTempPullUp);
 }
 
-void setBoardConfigOverrides() {
+static void alphax_8chan_boardConfigOverrides() {
 	hellenMegaModule();
 	setHellenCan();
 	setHellenCan2();
 }
 
-/**
- * @brief   Board-specific configuration defaults.
- *
- * See also setDefaultEngineConfiguration
- *
- */
-void setBoardDefaultConfiguration() {
+void set8chanDefaultETBPins() {
+	setupTLE9201IncludingStepper(/*controlPin*/Gpio::MM176_OUT_PWM9, Gpio::MM176_GP6, Gpio::MM176_GP7);
+	setupTLE9201IncludingStepper(/*controlPin*/Gpio::MM176_OUT_PWM18, Gpio::MM176_GP10, Gpio::MM176_GP11, 1);
+}
+
+static void alphax_8chan_defaultConfiguration() {
 	setInjectorPins();
 	setIgnitionPins();
-	setupTLE9201(/*controlPin*/Gpio::MM176_OUT_PWM9, Gpio::MM176_GP6, Gpio::MM176_GP7);
-	setupTLE9201(/*controlPin*/Gpio::MM176_OUT_PWM18, Gpio::MM176_GP10, Gpio::MM176_GP11, 1);
+	set8chanDefaultETBPins();
 //	engineConfiguration->vvtPins[0] = Gpio::H144_OUT_PWM7;
 //	engineConfiguration->vvtPins[1] = Gpio::H144_OUT_PWM8;
 
@@ -255,4 +253,40 @@ int getBoardMetaDcOutputsCount() {
 
 void setup_custom_board_overrides() {
 	custom_board_InitHardware = alphax_8chan_boardInitHardware;
+	custom_board_DefaultConfiguration = alphax_8chan_defaultConfiguration;
+	custom_board_ConfigOverrides = alphax_8chan_boardConfigOverrides;
+
+	custom_board_OnConfigurationChange = customBoardOnConfigurationChange;
+}
+
+int boardGetAnalogInputDiagnostic(adc_channel_e hwChannel, float voltage) {
+	/* we do not check voltage for valid range yet */
+	(void)voltage;
+
+	switch (hwChannel) {
+		/* inputs that may be affected by incorrect reference voltage */
+		case MM176_IN_TPS_ANALOG:
+		case MM176_IN_TPS2_ANALOG:
+		case MM176_IN_PPS1_ANALOG:
+		case MM176_IN_PPS2_ANALOG:
+		case MM176_IN_IAT_ANALOG:
+		case MM176_IN_AT1_ANALOG:
+		case MM176_IN_CLT_ANALOG:
+		case MM176_IN_AT2_ANALOG:
+		//case MM176_IN_O2S_ANALOG:
+		//case MM176_IN_O2S2_ANALOG:
+		case MM176_IN_MAP1_ANALOG:
+		case MM176_IN_MAP2_ANALOG:
+		case MM176_IN_AUX1_ANALOG:
+		case MM176_IN_AUX2_ANALOG:
+		case MM176_IN_AUX3_ANALOG:
+		case MM176_IN_AUX4_ANALOG:
+			/* TODO: more? */
+			return (boardGetAnalogDiagnostic() == ObdCode::None) ? 0 : -1;
+		/* all other inputs should not rely on output 5V */
+		default:
+			return 0;
+	}
+
+	return 0;
 }

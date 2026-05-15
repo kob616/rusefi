@@ -59,8 +59,13 @@
 #include "vvt.h"
 #include "closed_loop_fuel.h"
 #include "long_term_fuel_trim.h"
+#include "second_tables.h"
 #include "electronic_throttle_generated.h"
 #include "engine_cylinder.hpp"
+
+#if ROTATIONAL_IDLE_CONTROLLER
+#include "rotational_idle.h"
+#endif
 
 #include <functional>
 
@@ -105,8 +110,7 @@ public:
 
     StartStopState startStopState{};
 
-
-    TunerStudioOutputChannels outputChannels{};
+    output_channels_s outputChannels{};
 
     /**
      * Sometimes for instance during shutdown we need to completely supress CAN TX
@@ -236,6 +240,10 @@ public:
     LambdaMonitor lambdaMonitor{};
 #endif // EFI_ENGINE_CONTROL
 
+#if ROTATIONAL_IDLE_CONTROLLER
+    RotationalIdle rotationalIdleController{};
+#endif // ROTATIONAL_IDLE_CONTROLLER
+
     IgnitionState ignitionState{};
     void resetLua();
 
@@ -321,14 +329,15 @@ public:
     /**
       * See FAST_CALLBACK_PERIOD_MS
       */
-    void periodicFastCallback();
+  void periodicFastCallback();
     /**
       * See SLOW_CALLBACK_PERIOD_MS
       */
-    void periodicSlowCallback();
-    void updateSlowSensors();
-    void updateSwitchInputs();
-    void updateTriggerConfiguration();
+  void periodicSlowCallback();
+	void onEngineStopped();
+  void updateSlowSensors();
+  void updateSwitchInputs();
+  void updateTriggerConfiguration();
 
     bool isRunningPwmTest = false;
 
@@ -368,12 +377,6 @@ public:
        Returns true if some operations are in progress on background.
      */
     bool isInShutdownMode() const;
-
-    /**
-     * The stepper does not work if the main relay is turned off (it requires +12V).
-     * Needed by the stepper motor code to detect if it works.
-     */
-    bool isMainRelayEnabled() const;
 
     void onSparkFireKnockSense(uint8_t cylinderIndex, efitick_t nowNt);
 

@@ -23,8 +23,8 @@ public class OutputChannelsHelper {
             ecuPort.port,
             callbacks,
             (binaryProtocol) -> readMcuSerial(binaryProtocol, callbacks),
-            Optional.empty(), connectivityContext
-        );
+            Optional.empty(), connectivityContext,
+            "readMcuSerial");
     }
 
     private static Optional<Integer> readMcuSerial(
@@ -40,15 +40,20 @@ public class OutputChannelsHelper {
             return Optional.empty();
         }
         final AtomicInteger mcuSerial = new AtomicInteger();
-        SensorCentral.getInstance().addListener(() -> {
+        SensorCentral.ResponseListener listener = () -> {
             mcuSerial.set(PanamaHelper.getMcuSerial(mcuSerialField));
-        });
-        if (binaryProtocol.requestOutputChannels()) {
-            callbacks.logLine(String.format(PanamaHelper.MCUSERIAL + " is %d", mcuSerial.get()));
-            return Optional.of(mcuSerial.get());
-        } else {
-            callbacks.logLine("Failed to request output channels...");
-            return Optional.empty();
+        };
+        SensorCentral.getInstance().addListener(listener);
+        try {
+            if (binaryProtocol.requestOutputChannels()) {
+                callbacks.logLine(String.format(PanamaHelper.MCUSERIAL + " is %d", mcuSerial.get()));
+                return Optional.of(mcuSerial.get());
+            } else {
+                callbacks.logLine("Failed to request output channels...");
+                return Optional.empty();
+            }
+        } finally {
+            SensorCentral.getInstance().removeListener(listener);
         }
     }
 

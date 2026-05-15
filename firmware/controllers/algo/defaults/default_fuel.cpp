@@ -78,6 +78,7 @@ static void setDefaultWarmupFuelEnrichment() {
 
 static void setDefaultVETable() {
 	setRpmTableBin(config->veRpmBins);
+
 #if (VE_LOAD_COUNT == 16) && (VE_RPM_COUNT == 16)
 	static const float hardCodedveTable[16][16] = {
 {49.300,	49.300,	49.400,	49.600,	50.200,	51.400,	52.600,	53.800,	54.400,	54.600,	54.400,	53.700,	52.800,	51.800,	50.900,	50.000,	},
@@ -195,8 +196,11 @@ static void setDefaultLtftSettings() {
 	cfg.enabled = true;
 	cfg.correctionEnabled = false;
 
-	// Default to very slow learning
-	cfg.timeConstant = 3000;
+	// Default to slow learning
+	cfg.timeConstant[ftRegionIdle] = 3000;
+	cfg.timeConstant[ftRegionOverrun] = 1500;
+	cfg.timeConstant[ftRegionPower] = 30;
+	cfg.timeConstant[ftRegionCruise] = 300;
 
 	// 0.5% deadband
 	cfg.deadband = 0.5f;
@@ -333,6 +337,9 @@ void setDefaultFuel() {
 
 	setRpmTableBin(config->tpsTspCorrValuesBins);
 	setLinearCurve(config->tpsTspCorrValues, 1, 1);
+
+	setRpmTableBin(config->predictiveMapBlendDurationBins);
+	setLinearCurve(config->predictiveMapBlendDurationValues, 1, 1);
 
 	setDefaultVETable();
 	setDefaultLambdaTable();

@@ -85,6 +85,11 @@ struct TriggerDecodeResult {
 class TriggerDecoderBase : public trigger_state_s {
 public:
 	TriggerDecoderBase(const char* name);
+
+  void printGaps(const char * prefix,
+    const TriggerConfiguration& triggerConfiguration,
+    const TriggerWaveform& triggerShape);
+
 	/**
 	 * current trigger processing index, between zero and #size
 	 */
@@ -159,7 +164,7 @@ public:
 			);
 
 	bool someSortOfTriggerError() const {
-		return !m_timeSinceDecodeError.hasElapsedSec(1);
+		return !m_timeSinceDecodeError.hasElapsedSec(0.3);
 	}
 
 protected:

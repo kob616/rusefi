@@ -12,6 +12,7 @@
 
 #include "pch.h"
 #include "hellen_all_meta.h"
+#include "board_overrides.h"
 
 static void setInjectorPins() {
 	engineConfiguration->injectionPins[0] = H176_LS_1;
@@ -52,7 +53,7 @@ static void setupDefaultSensorInputs() {
 
 #include "hellen_leds_176.cpp"
 
-void setBoardConfigOverrides() {
+static void hellen_MiataNA6_boardConfigOverrides() {
 	setHellenVbatt();
 
 	setHellenSdCardSpi2();
@@ -65,11 +66,11 @@ void setBoardConfigOverrides() {
 /**
  * @brief   Board-specific configuration defaults.
  *
- * See also setDefaultEngineConfiguration
+
  *
 
  */
-void setBoardDefaultConfiguration() {
+static void hellen_MiataNA6_boardDefaultConfiguration() {
 	setInjectorPins();
 	setIgnitionPins();
 
@@ -95,4 +96,9 @@ void setBoardDefaultConfiguration() {
 	engineConfiguration->ignitionMode = IM_INDIVIDUAL_COILS; // IM_WASTED_SPARK
 
 
+}
+
+void setup_custom_board_overrides() {
+	custom_board_DefaultConfiguration = hellen_MiataNA6_boardDefaultConfiguration;
+	custom_board_ConfigOverrides = hellen_MiataNA6_boardConfigOverrides;
 }

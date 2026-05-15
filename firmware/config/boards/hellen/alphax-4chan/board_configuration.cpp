@@ -98,7 +98,7 @@ static void alphax_4chan_boardInitHardware() {
 	alphaD5PullDown.initPin("a-d5", Gpio::H144_LS_8);
 }
 
-void boardOnConfigurationChange(engine_configuration_s * /*previousConfiguration*/) {
+static void customBoardOnConfigurationChange(engine_configuration_s * /*previousConfiguration*/) {
 	alphaTachPullUp.setValue(config->boardUseTachPullUp);
 	alphaTempPullUp.setValue(config->boardUseTempPullUp);
 	alphaCrankPPullUp.setValue(config->boardUseCrankPullUp);
@@ -113,9 +113,7 @@ void boardOnConfigurationChange(engine_configuration_s * /*previousConfiguration
 	alphaD5PullDown.setValue(config->boardUseD5PullDown);
 }
 
-
-
-void setBoardConfigOverrides() {
+static void alphax_4chan_ConfigOverrides() {
 	setHellenVbatt();
 
     if (is_F_OrOlder()) {
@@ -135,11 +133,11 @@ void setBoardConfigOverrides() {
 /**
  * @brief   Board-specific configuration defaults.
  *
- * See also setDefaultEngineConfiguration
+
  *
 
  */
-void setBoardDefaultConfiguration() {
+static void alphax_4chan_defaultConfiguration() {
 	setInjectorPins();
 	setIgnitionPins();
 	setupTLE9201(/*controlPin*/Gpio::H144_OUT_PWM2, /*directionPin1*/Gpio::H144_GP_IO1, /*disablePin*/Gpio::H144_GP_IO2);
@@ -216,4 +214,8 @@ int getBoardMetaDcOutputsCount() {
 
 void setup_custom_board_overrides() {
 	custom_board_InitHardware = alphax_4chan_boardInitHardware;
+	custom_board_DefaultConfiguration = alphax_4chan_defaultConfiguration;
+	custom_board_ConfigOverrides = alphax_4chan_ConfigOverrides;
+
+	custom_board_OnConfigurationChange = customBoardOnConfigurationChange;
 }

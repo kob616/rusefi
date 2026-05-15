@@ -7,8 +7,22 @@
 #include "pch.h"
 #include "defaults.h"
 #include "hellen_meta.h"
-#include "hellen_leds_100.cpp"
+#include "board_overrides.h"
 //#include "connectors/generated_board_pin_names.h"
+#include "../uaefi121/mega-uaefi.h"
+
+Gpio getCommsLedPin() {
+	return Gpio::MM100_LED3_BLUE;
+}
+
+Gpio getRunningLedPin() {
+	// this one is used to drive 20D - High side output
+	return Gpio::Unassigned;
+}
+
+Gpio getWarningLedPin() {
+	return Gpio::MM100_LED4_YELLOW;
+}
 
 static void setInjectorPins() {
 	engineConfiguration->injectionPins[0] = Gpio::MM100_INJ1;
@@ -45,31 +59,7 @@ static void setupDefaultSensorInputs() {
   engineConfiguration->vehicleSpeedSensorInputPin = Gpio::MM100_IN_D3;
 }
 
-void setBoardConfigOverrides() {
-	setHellenMegaEnPin();
-	setHellenVbatt();
-
-	hellenMegaSdWithAccelerometer();
-
-  engineConfiguration->vrThreshold[0].pin = Gpio::MM100_OUT_PWM6;
-
-	setHellenCan();
-
-	setDefaultHellenAtPullUps();
-
-}
-
-bool validateBoardConfig() {
-#ifndef HW_HELLEN_UAEFI121
-  // this same file is used for both uaefi and uaefi121
-  if (engineConfiguration->can2RxPin != Gpio::B12) {
-	  setHellenCan2();
-  }
-#endif
-  return true;
-}
-
-static void setDefaultETBPins() {
+void setUaefiDefaultETBPins() {
   // users would want to override those if using H-bridges for stepper idle control
   setupTLE9201IncludingStepper(/*PWM controlPin*/Gpio::MM100_OUT_PWM3, Gpio::MM100_OUT_PWM4, Gpio::MM100_SPI2_MISO);
   setupTLE9201IncludingStepper(/*PWM controlPin*/Gpio::MM100_OUT_PWM5, Gpio::MM100_SPI2_MOSI, Gpio::MM100_USB1ID, 1);
@@ -78,13 +68,13 @@ static void setDefaultETBPins() {
 /**
  * @brief   Board-specific configuration defaults.
  *
- * See also setDefaultEngineConfiguration
+
  *
  */
-void setBoardDefaultConfiguration() {
+static void super_uaefi_boardDefaultConfiguration() {
 	setInjectorPins();
 	setIgnitionPins();
-	setDefaultETBPins();
+	setUaefiDefaultETBPins();
 
   setHellenMMbaro();
 
@@ -95,7 +85,6 @@ void setBoardDefaultConfiguration() {
 
 	engineConfiguration->canTxPin = Gpio::MM100_CAN_TX;
 	engineConfiguration->canRxPin = Gpio::MM100_CAN_RX;
-	setHellenCan2();
 
   engineConfiguration->mainRelayPin = Gpio::MM100_IGN7;
  	engineConfiguration->fanPin = Gpio::MM100_IGN8;
@@ -118,7 +107,7 @@ void setBoardDefaultConfiguration() {
 	// Some sensible defaults for other options
 	setCrankOperationMode();
 
-	setAlgorithm(LM_SPEED_DENSITY);
+	setAlgorithm(engine_load_mode_e::LM_SPEED_DENSITY);
 
 	engineConfiguration->injectorCompensationMode = ICM_FixedRailPressure;
 
@@ -146,21 +135,13 @@ static Gpio OUTPUTS[] = {
 	Gpio::MM100_OUT_PWM2, // 31C LS4
 	Gpio::MM100_IGN7, // 30C LS5_HOT
 	Gpio::MM100_IGN8, // 29C LS6_HOT
-/*
-	Gpio::MM100_INJ7, // B7 Low Side output 1
-	Gpio::MM100_IGN8, // B8 Fan Relay Weak Low Side output 2
-	Gpio::MM100_IGN7, // B9 Main Relay Weak Low Side output 1
-	Gpio::MM100_OUT_PWM2, // B16 Low Side output 4 / Fuel Pump
-	Gpio::MM100_OUT_PWM1, // B17 Low Side output 3
-	Gpio::MM100_INJ8, // B18 Low Side output 2
-	// high sides
-	Gpio::MM100_IGN6, // B10 Coil 6
-	Gpio::MM100_IGN4, // B11 Coil 4
-	Gpio::MM100_IGN3, // B12 Coil 3
-	Gpio::MM100_IGN5, // B13 Coil 5
-	Gpio::MM100_IGN2, // B14 Coil 2
-	Gpio::MM100_IGN1, // B15 Coil 1
-*/
+	Gpio::MM100_IGN1, // Coil 1
+	Gpio::MM100_IGN2, // Coil 2
+	Gpio::MM100_IGN3, // Coil 3
+	Gpio::MM100_IGN4, // Coil 4
+	Gpio::MM100_IGN5, // Coil 5
+	Gpio::MM100_IGN6, // Coil 6
+	Gpio::MM100_LED2_GREEN, // 20D High Side Output
 };
 
 int getBoardMetaOutputsCount() {
@@ -168,7 +149,7 @@ int getBoardMetaOutputsCount() {
 }
 
 int getBoardMetaLowSideOutputsCount() {
-  return getBoardMetaOutputsCount() - 0;
+  return getBoardMetaOutputsCount() - 7;
 }
 
 Gpio* getBoardMetaOutputs() {
@@ -177,4 +158,9 @@ Gpio* getBoardMetaOutputs() {
 
 int getBoardMetaDcOutputsCount() {
     return 2;
+}
+
+void setup_custom_board_overrides() {
+	custom_board_DefaultConfiguration = super_uaefi_boardDefaultConfiguration;
+	custom_board_ConfigOverrides = setMegaUaefiBoardConfigOverrides;
 }

@@ -60,8 +60,6 @@
 #include "vr_pwm.h"
 #include "adc_subscription.h"
 #include "gc_generic.h"
-#include "tuner_detector_utils.h"
-
 
 #if EFI_TUNER_STUDIO
 #include "tunerstudio.h"
@@ -76,6 +74,7 @@
 #endif /* EFI_BOOTLOADER_INCLUDE_CODE */
 
 #include "periodic_task.h"
+#include "board_overrides.h"
 
 #ifdef MODULE_MAP_AVERAGING
 #include "map_averaging.h"
@@ -220,6 +219,8 @@ char * getPinNameByAdcChannel(const char *msg, adc_channel_e hwChannel, char *bu
 		snprintf(buffer, bufferSize, "%s%d", name ? name : "null", getAdcChannelPin(hwChannel));
 	}
 #else
+  UNUSED(msg);
+  UNUSED(hwChannel);
 	snprintf(buffer, bufferSize, "NONE");
 #endif /* HAL_USE_ADC */
 	return buffer;
@@ -498,7 +499,8 @@ void commonInitEngineController() {
 #endif
 }
 
-PUBLIC_API_WEAK bool validateBoardConfig() {
+bool validateBoardConfig() {
+  // todo: remove placeholder June 2026
   return true;
 }
 
@@ -519,12 +521,23 @@ static bool validateGdi() {
 
 // Returns false if there's an obvious problem with the loaded configuration
 bool validateConfigOnStartUpOrBurn() {
-  if (!validateBoardConfig()) {
+  if (!get_board_override_result(custom_board_validateConfig, true)) {
     return false;
   }
+#if defined(HW_HELLEN_UAEFI)
+  // todo: make this board-specific validation callback!
+  pickEtbOrStepper();
+#endif
   if (!validateGdi()) {
     return false;
   }
+  if (engineConfiguration->etbMinimumPosition + 1 >= engineConfiguration->etbMaximumPosition) {
+		criticalError("Broken ETB min/max %d %d",
+		  engineConfiguration->etbMinimumPosition,
+		  engineConfiguration->etbMaximumPosition);
+		return false;
+  }
+
   defaultsOrFixOnBurn();
 	if (engineConfiguration->cylindersCount > MAX_CYLINDER_COUNT) {
 		criticalError("Invalid cylinder count: %d", engineConfiguration->cylindersCount);
@@ -559,6 +572,9 @@ bool validateConfigOnStartUpOrBurn() {
 		ensureArrayIsAscending("VE load", config->veLoadBins);
 		ensureArrayIsAscending("VE RPM", config->veRpmBins);
 
+  		ensureArrayIsAscending("Second VE load", secondTablesGetState()->secondVeLoadBins);
+  		ensureArrayIsAscending("Second VE RPM", secondTablesGetState()->secondVeRpmBins);
+
 		ensureArrayIsAscending("Lambda/AFR load", config->lambdaLoadBins);
 		ensureArrayIsAscending("Lambda/AFR RPM", config->lambdaRpmBins);
 
@@ -575,6 +591,9 @@ bool validateConfigOnStartUpOrBurn() {
 
 		ensureArrayIsAscendingOrDefault("STFT Rpm", config->fuelTrimRpmBins);
 		ensureArrayIsAscendingOrDefault("STFT Load", config->fuelTrimLoadBins);
+
+		ensureArrayIsAscendingOrDefault("knock rpm", config->maxKnockRetardRpmBins);
+		ensureArrayIsAscendingOrDefault("knock tps", config->maxKnockRetardLoadBins);
 
 		ensureArrayIsAscendingOrDefault("TC slip", engineConfiguration->tractionControlSlipBins);
 		ensureArrayIsAscendingOrDefault("TC speed", engineConfiguration->tractionControlSpeedBins);
@@ -594,6 +613,9 @@ bool validateConfigOnStartUpOrBurn() {
 
 		ensureArrayIsAscending("Ignition load", config->ignitionLoadBins);
 		ensureArrayIsAscending("Ignition RPM", config->ignitionRpmBins);
+
+		ensureArrayIsAscending("Second Ignition load", secondTablesGetState()->secondIgnitionLoadBins);
+		ensureArrayIsAscending("Second Ignition RPM", secondTablesGetState()->secondIgnitionRpmBins);
 		ensureArrayIsAscendingOrDefault("Ign Trim Rpm", config->ignTrimRpmBins);
    		ensureArrayIsAscendingOrDefault("Ign Trim Load", config->ignTrimLoadBins);
 
@@ -693,7 +715,13 @@ bool validateConfigOnStartUpOrBurn() {
 		ensureArrayIsAscending("Oil pressure protection", config->minimumOilPressureBins);
 	}
 
+
 	return true;
+}
+
+bool validateConfigOnStartUpOrBurn(bool isRunningOnBurn) {
+	ConfigurationWizard::onConfigOnStartUpOrBurn(isRunningOnBurn);
+	return validateConfigOnStartUpOrBurn();
 }
 
 #if !EFI_UNIT_TEST
@@ -765,3 +793,5 @@ int getRusEfiVersion() {
 	return VCS_DATE;
 }
 #endif /* EFI_UNIT_TEST */
+
+std::optional<custom_validate_config_type> custom_board_validateConfig;

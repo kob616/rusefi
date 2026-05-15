@@ -1,4 +1,4 @@
-// was generated automatically by rusEFI tool  from rusefi_enums.h // by enum_to_string.jar tool on Tue Jul 29 20:21:00 UTC 2025
+// was generated automatically by rusEFI tool  from rusefi_enums.h // by enum_to_string.jar tool on Sat Jan 24 04:28:30 UTC 2026
 // see also gen_config_and_enums.bat
 
 
@@ -20,6 +20,9 @@ const char *getMsIoBoxId(MsIoBoxId value);
 #endif //__cplusplus
 #if __cplusplus
 const char *getMsIoBoxVss(MsIoBoxVss value);
+#endif //__cplusplus
+#if __cplusplus
+const char *getRotationalCutMode(RotationalCutMode value);
 #endif //__cplusplus
 #if __cplusplus
 const char *getSelectedGear(SelectedGear value);
@@ -54,19 +57,23 @@ const char *getCan_baudrate_e(can_baudrate_e value);
 const char *getCan_nbc_e(can_nbc_e value);
 const char *getCan_vss_nbc_e(can_vss_nbc_e value);
 const char *getCan_wbo_aem_id_e(can_wbo_aem_id_e value);
+const char *getCan_wbo_re_hwidx_e(can_wbo_re_hwidx_e value);
 const char *getCan_wbo_re_id_e(can_wbo_re_id_e value);
 const char *getCan_wbo_re_status_e(can_wbo_re_status_e value);
 const char *getCan_wbo_type_e(can_wbo_type_e value);
+const char *getCranking_condition_e(cranking_condition_e value);
 const char *getDc_function_e(dc_function_e value);
 const char *getDisplay_mode_e(display_mode_e value);
 const char *getEgo_sensor_e(ego_sensor_e value);
-const char *getEngine_load_mode_e(engine_load_mode_e value);
+const char *getFt_region_e(ft_region_e value);
 const char *getFuel_pressure_sensor_mode_e(fuel_pressure_sensor_mode_e value);
 const char *getGear_e(gear_e value);
 const char *getGppwm_channel_e(gppwm_channel_e value);
 const char *getGppwm_compare_mode_e(gppwm_compare_mode_e value);
 const char *getHpfp_cam_e(hpfp_cam_e value);
+#if __cplusplus
 const char *getIdle_mode_e(idle_mode_e value);
+#endif //__cplusplus
 const char *getIdle_state_e(idle_state_e value);
 const char *getIgnition_mode_e(ignition_mode_e value);
 const char *getImu_type_e(imu_type_e value);
@@ -77,7 +84,6 @@ const char *getLaunchActivationMode_e(launchActivationMode_e value);
 const char *getLoad_override_e(load_override_e value);
 const char *getLua_gauge_e(lua_gauge_e value);
 const char *getLua_gauge_meaning_e(lua_gauge_meaning_e value);
-const char *getMaf_sensor_type_e(maf_sensor_type_e value);
 const char *getMc33810maxDwellTimer_e(mc33810maxDwellTimer_e value);
 const char *getNitrous_arming_method_e(nitrous_arming_method_e value);
 const char *getOperation_mode_e(operation_mode_e value);

@@ -157,6 +157,7 @@ extern void errorHandlerWriteReportFile(FIL *fd);
 extern int errorHandlerCheckReportFiles();
 extern void errorHandlerDeleteReports();
 
+// see also SD_MODE
 typedef enum {
 	SD_STATUS_INIT = 0,
 	SD_STATUS_MOUNTED,
@@ -196,12 +197,6 @@ static SD_MODE sdTargetMode = SD_MODE_ECU;
 
 static bool sdNeedRemoveReports = false;
 
-/**
- * on't re-read SD card spi device after boot - it could change mid transaction (TS thread could preempt),
- * which will cause disaster (usually multiple-unlock of the same mutex in UNLOCK_SD_SPI)
- */
-static spi_device_e mmcSpiDevice = SPI_NONE;
-
 #define RUSEFI_LOG_PREFIX "re_"
 #define PREFIX_LEN 3
 #define SHORT_TIME_LEN 13
@@ -209,6 +204,12 @@ static spi_device_e mmcSpiDevice = SPI_NONE;
 #define FILE_LIST_MAX_COUNT 20
 
 #if HAL_USE_MMC_SPI
+/**
+ * on't re-read SD card spi device after boot - it could change mid transaction (TS thread could preempt),
+ * which will cause disaster (usually multiple-unlock of the same mutex in UNLOCK_SD_SPI)
+ */
+static spi_device_e mmcSpiDevice = SPI_NONE;
+
 /**
  * MMC driver instance.
  */
@@ -241,7 +242,7 @@ static void sdLoggerSetReady(bool value) {
 	sdLoggerReady = value;
 }
 
-static bool sdLoggerIsReady(void) {
+static bool sdLoggerIsReady() {
 	return sdLoggerReady;
 }
 
@@ -296,21 +297,31 @@ extern int logFileIndex;
 static char logName[_MAX_FILLER + 20];
 
 static void printMmcPinout() {
+#if HAL_USE_MMC_SPI
 	efiPrintf("MMC CS %s", hwPortname(engineConfiguration->sdCardCsPin));
 	// todo: we need to figure out the right SPI pinout, not just SPI2
 //	efiPrintf("MMC SCK %s:%d", portname(EFI_SPI2_SCK_PORT), EFI_SPI2_SCK_PIN);
 //	efiPrintf("MMC MISO %s:%d", portname(EFI_SPI2_MISO_PORT), EFI_SPI2_MISO_PIN);
 //	efiPrintf("MMC MOSI %s:%d", portname(EFI_SPI2_MOSI_PORT), EFI_SPI2_MOSI_PIN);
+#else
+  // not sure if we need to print SDIO pinout
+#endif
 }
 
 static void sdStatistics() {
 	printMmcPinout();
 	efiPrintf("SD enabled=%s status=%s", boolToString(engineConfiguration->isSdCardEnabled),
 			sdStatusName(sdStatus));
+#if HAL_USE_MMC_SPI
 	printSpiConfig("SD", mmcSpiDevice);
-#if HAL_USE_MMC_SPI && (defined(STM32F4XX) || defined(STM32F7XX))
+#if defined(STM32F4XX) || defined(STM32F7XX)
 	efiPrintf("HS clock %d Hz", spiGetBaseClock(mmccfg.spip) / (2 << ((mmc_hs_spicfg.cr1 & SPI_CR1_BR_Msk) >> SPI_CR1_BR_Pos)));
 	efiPrintf("LS clock %d Hz", spiGetBaseClock(mmccfg.spip) / (2 << ((mmc_ls_spicfg.cr1 & SPI_CR1_BR_Msk) >> SPI_CR1_BR_Pos)));
+#else
+	efiPrintf("not implemented");
+#endif
+#else
+	efiPrintf("SDIO mode");
 #endif
 	if (sdLoggerIsReady()) {
 		efiPrintf("filename=%s size=%d", logName, logBuffer.writen());
@@ -356,7 +367,10 @@ static void prepareLogFileName() {
  * This function saves the name of the file in a global variable
  * so that we can later append to that file
  */
-static void sdLoggerCreateFile(FIL *fd) {
+static int sdLoggerCreateFile(FIL *fd) {
+	// turn off indicator
+	sdLoggerSetReady(false);
+
 	// clear the memory
 	memset(fd, 0, sizeof(FIL));
 	prepareLogFileName();
@@ -364,11 +378,18 @@ static void sdLoggerCreateFile(FIL *fd) {
 	efiPrintf("starting log file %s", logName);
 	// Create new file. If file is exist - truncate and overwrite, we need header to be at zero offset.
 	FRESULT err = f_open(fd, logName, FA_CREATE_ALWAYS | FA_WRITE);
-	if (err != FR_OK && err != FR_EXIST) {
+	if (err == FR_EXIST) {
+		err = FR_OK;
+	}
+#if EFI_TUNER_STUDIO
+	// Show error to TS
+	engine->outputChannels.sd_error = (uint8_t)err;
+#endif
+	if (err != FR_OK) {
 		sdStatus = SD_STATUS_OPEN_FAILED;
 		warning(ObdCode::CUSTOM_ERR_SD_MOUNT_FAILED, "SD: file open failed");
-		printFatFsError("log file create", err);	// else - show error
-		return;
+		printFatFsError("log file create", err);
+		return -1;
 	}
 
 #ifdef LOGGER_MAX_FILE_SIZE
@@ -382,6 +403,8 @@ static void sdLoggerCreateFile(FIL *fd) {
 
 	// SD logger is ok
 	sdLoggerSetReady(true);
+
+	return 0;
 }
 
 static void sdLoggerCloseFile(FIL *fd)
@@ -554,7 +577,7 @@ static void deinitMmc() {
 // Mount the SD card.
 // Returns true if the filesystem was successfully mounted for writing.
 static bool mountMmc() {
-	bool ret = false;
+	FRESULT ret = FR_NOT_READY;
 
 	// if no card, don't try to mount FS
 	if (cardBlockDevice != nullptr) {
@@ -562,29 +585,30 @@ static bool mountMmc() {
 		memset(&resources, 0x00, sizeof(resources));
 		// We were able to connect the SD card, mount the filesystem
 		memset(&MMC_FS, 0, sizeof(FATFS));
-		ret = (f_mount(&MMC_FS, "", /* Mount immediately */ 1) == FR_OK);
+		ret = f_mount(&MMC_FS, "", /* Mount immediately */ 1);
 
-		if (ret == false) {
+		if (ret != FR_OK) {
 			sdStatus = SD_STATUS_MOUNT_FAILED;
-			efiPrintf("SD card mount failed!");
+			printFatFsError("Mount failed", ret);
+		} else {
+			sdStatus = SD_STATUS_MOUNTED;
+			efiPrintf("SD card mounted!");
 		}
 	}
 
-	if (ret) {
-		sdStatus = SD_STATUS_MOUNTED;
-		efiPrintf("SD card mounted!");
-	}
-
 #if EFI_STORAGE_SD == TRUE
-	// notificate storage subsystem
-	initStorageSD();
+	if (ret == FR_OK) {
+		// notificate storage subsystem
+		initStorageSD();
+	}
 #endif // EFI_STORAGE_SD
 
 #if EFI_TUNER_STUDIO
-	engine->outputChannels.sd_logging_internal = ret;
+	engine->outputChannels.sd_error = (uint8_t) ret;
+	engine->outputChannels.sd_logging_internal = (ret == FR_OK);
 #endif
 
-	return ret;
+	return (ret == FR_OK);
 }
 
 /*
@@ -606,6 +630,7 @@ static void unmountMmc() {
 	}
 
 #if EFI_TUNER_STUDIO
+	engine->outputChannels.sd_error = (uint8_t) ret;
 	engine->outputChannels.sd_logging_internal = false;
 #endif
 
@@ -637,16 +662,30 @@ static int sdTriggerLogger();
 static bool sdLoggerInitDone = false;
 static bool sdLoggerFailed = false;
 
-static int sdLogger(FIL *fd)
-{
+static bool sdLoggedSuppressed = false;
+
+// actually write logs on SD card
+static int sdLogger(FIL *fd) {
+  if (sdLoggedSuppressed) {
+    return 0;
+  }
 	int ret = 0;
 
 	if (!sdLoggerInitDone) {
 		incLogFileName(fd);
-		sdLoggerCreateFile(fd);
-		logBuffer.start(fd);
 		MLG::resetFileLogging();
+
+		ret = sdLoggerCreateFile(fd);
+		if (ret == 0) {
+			ret = logBuffer.start(fd);
+		}
+
 		sdLoggerInitDone = true;
+
+		if (ret < 0) {
+			sdLoggerFailed = true;
+			return ret;
+		}
 	}
 
 	if (!sdLoggerFailed) {
@@ -659,6 +698,13 @@ static int sdLogger(FIL *fd)
 
 	if (ret < 0) {
 		sdLoggerFailed = true;
+		return ret;
+	}
+
+	if (sdLoggerFailed) {
+		// logger is dead until restart, do not waste CPU
+		chThdSleepMilliseconds(100);
+		return -1;
 	}
 
 #ifdef LOGGER_MAX_FILE_SIZE
@@ -669,18 +715,15 @@ static int sdLogger(FIL *fd)
 		logBuffer.stop();
 		sdLoggerCloseFile(fd);
 
-		//start new file
-		incLogFileName(fd);
-		sdLoggerCreateFile(fd);
-		logBuffer.start(fd);
-		MLG::resetFileLogging();
+		//need to start new file
+		sdLoggerInitDone = false;
 	}
 #endif
 
 	return ret;
 }
 
-static void sdLoggerStart(void)
+static void sdLoggerStart()
 {
 	sdLoggerInitDone = false;
 	sdLoggerFailed = false;
@@ -693,7 +736,7 @@ static void sdLoggerStart(void)
 #endif
 }
 
-static void sdLoggerStop(void)
+static void sdLoggerStop()
 {
 	sdLoggerCloseFile(&resources.fd);
 #if EFI_TOOTH_LOGGER
@@ -786,7 +829,7 @@ static int sdModeSwitcher()
 	case SD_MODE_IDLE:
 		return 0;
 	case SD_MODE_UNMOUNT:
-		// everithing is done in sdModeSwitchToIdle();
+		// everything is done in sdModeSwitchToIdle();
 		sdMode = SD_MODE_UNMOUNT;
 		sdTargetMode = SD_MODE_IDLE;
 		return 0;
@@ -828,7 +871,7 @@ static int sdModeExecuter()
 	case SD_MODE_UNMOUNT:
 	case SD_MODE_FORMAT:
 		// nothing to do in these state, just sleep
-		chThdSleepMilliseconds(TIME_MS2I(100));
+		chThdSleepMilliseconds(100);
 		return 0;
 	case SD_MODE_ECU:
 		if (sdNeedRemoveReports) {
@@ -953,22 +996,22 @@ static int mlgLogger() {
 }
 
 static int sdTriggerLogger() {
-	size_t toWrite = 0;
+	int ret = 0;
 #if EFI_TOOTH_LOGGER
 	auto buffer = GetToothLoggerBufferBlocking();
 
 	// can return nullptr
 	if (buffer) {
-		toWrite = buffer->nextIdx * sizeof(composite_logger_s);
-		logBuffer.write(reinterpret_cast<const char*>(buffer->buffer), toWrite);
+		ret = buffer->nextIdx * sizeof(composite_logger_s);
+		logBuffer.write(reinterpret_cast<const char*>(buffer->buffer), ret);
 		if (logBuffer.failed) {
-			return -1;
+			ret = -1;
 		}
 
 		ReturnToothLoggerBuffer(buffer);
 	}
 #endif /* EFI_TOOTH_LOGGER */
-	return toWrite;
+	return ret;
 }
 
 #endif // EFI_PROD_CODE
@@ -992,7 +1035,13 @@ void initEarlyMmcCard() {
 	logName[0] = 0;
 
 	addConsoleAction("sdinfo", sdStatistics);
+	addConsoleAction("sdsuppresslogging",  [](){
+	  sdLoggedSuppressed = true;
+    efiPrintf("Suppressed!");
+  });
 	addConsoleActionS("del", removeFile);
+	// sdmode pc
+	// sdmode ecu
 	addConsoleActionS("sdmode", sdSetMode);
 	addConsoleAction("delreports", sdCardRemoveReportFiles);
 	//incLogFileName() use same shared FDLogFile, calling it while FDLogFile is used by log writer will cause damage
@@ -1021,7 +1070,7 @@ void sdCardRequestMode(SD_MODE mode)
 	}
 }
 
-SD_MODE sdCardGetCurrentMode(void)
+SD_MODE sdCardGetCurrentMode()
 {
 	return sdMode;
 }

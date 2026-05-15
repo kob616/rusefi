@@ -133,7 +133,7 @@ void setFrankensoConfiguration() {
 	engineConfiguration->injectionPins[3] = EFI_INJECTOR_PIN3; // #4
 #endif /* EFI_INJECTOR_PIN3 */
 
-	setAlgorithm(LM_SPEED_DENSITY);
+	setAlgorithm(engine_load_mode_e::LM_SPEED_DENSITY);
 
 	engineConfiguration->injectionPins[4] = Gpio::Unassigned;
 	engineConfiguration->injectionPins[5] = Gpio::Unassigned;
@@ -296,7 +296,7 @@ void proteusDcWastegateTest() {
 	engineConfiguration->wastegatePositionClosedVoltage = 0.7;
 	engineConfiguration->wastegatePositionOpenedVoltage = 4.0;
 
-	strncpy(config->luaScript, R"(
+	setLuaScript(R"(
 
 mapSensor = Sensor.new("map")
 mapSensor : setTimeout(3000)
@@ -307,7 +307,7 @@ function onTick()
 	mapSensor : set(tps)
 end
 
-    )", efi::size(config->luaScript));
+    )");
 }
 
 #endif // HW_PROTEUS
@@ -355,7 +355,7 @@ void mreSecondaryCan() {
 //	engineConfiguration->afr.hwChannel = EFI_ADC_14;
 
 
-	strncpy(config->luaScript, R"(
+	setLuaScript( R"(
 txPayload = {}
 function onTick()
   auxV = getAuxAnalog(0)
@@ -374,7 +374,7 @@ function onTick()
   txPayload[6] = auxV * 256;
   txCan(1, 0x600, 1, txPayload)
 end
-)", efi::size(config->luaScript));
+)");
 
 }
 
@@ -605,7 +605,7 @@ function onTick()
   print('')
 end
 				)";
-	strncpy(config->luaScript, script, efi::size(config->luaScript));
+	setLuaScript(script);
 #endif
 }
 

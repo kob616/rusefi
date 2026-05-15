@@ -1,16 +1,16 @@
 package com.rusefi.maintenance.migration.batt_lag_corr_migration;
 
 import com.rusefi.maintenance.TestTuneMigrationContext;
-import com.rusefi.maintenance.migration.ComposedTuneMigrator;
+import com.rusefi.maintenance.migration.migrators.ComposedTuneMigrator;
 import com.rusefi.tune.xml.Constant;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import javax.xml.bind.JAXBException;
+import jakarta.xml.bind.JAXBException;
 import java.util.Map;
 
-import static com.rusefi.maintenance.migration.BattLagCorrExtensionMigrator.INJECTOR_BATT_LAG_CORR_BATT_BINS_FIELD_NAME;
-import static com.rusefi.maintenance.migration.BattLagCorrExtensionMigrator.INJECTOR_BATT_LAG_CORR_TABLE_FIELD_NAME;
+import static com.rusefi.maintenance.migration.migrators.BattLagCorrExtensionMigrator.INJECTOR_BATT_LAG_CORR_BATT_BINS_FIELD_NAME;
+import static com.rusefi.maintenance.migration.migrators.BattLagCorrExtensionMigrator.INJECTOR_BATT_LAG_CORR_TABLE_FIELD_NAME;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class BattLagCorrMigratorTest {
@@ -27,7 +27,7 @@ public class BattLagCorrMigratorTest {
         );
         assertNotNull(migratedInjectorBattLagCorrBattBins);
         assertEquals(INJECTOR_BATT_LAG_CORR_BATT_BINS_FIELD_NAME, migratedInjectorBattLagCorrBattBins.getName());
-        assertNull(migratedInjectorBattLagCorrBattBins.getUnits());
+        assertEquals("volts", migratedInjectorBattLagCorrBattBins.getUnits());
         Assertions.assertEquals(BattLagCorrMigrationTestTuneMigrationContext.INJECTOR_BATT_LAG_CORR_BINS_TEST_VALUE, migratedInjectorBattLagCorrBattBins.getValue());
         assertEquals("2", migratedInjectorBattLagCorrBattBins.getDigits());
         assertEquals("8", migratedInjectorBattLagCorrBattBins.getRows());
@@ -38,7 +38,7 @@ public class BattLagCorrMigratorTest {
         );
         assertNotNull(migratedInjectorBattLagCorrTable);
         assertEquals(INJECTOR_BATT_LAG_CORR_TABLE_FIELD_NAME, migratedInjectorBattLagCorrTable.getName());
-        assertNull(migratedInjectorBattLagCorrTable.getUnits());
+        assertEquals("ms", migratedInjectorBattLagCorrTable.getUnits());
         assertEquals(
             "\n" +
             "         3.371 1.974 1.383 1.194 1.04 0.914 0.797 0.726\n" +
@@ -52,3 +52,4 @@ public class BattLagCorrMigratorTest {
         assertEquals("", testContext.getTestCallbacks().getContent());
     }
 }
+

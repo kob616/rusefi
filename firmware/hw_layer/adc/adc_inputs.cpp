@@ -20,8 +20,8 @@ float PUBLIC_API_WEAK boardAdjustVoltage(float voltage, adc_channel_e /* hwChann
 /* overall analog health state
  * return negative in case of any problems
  * return 0 if everything is ok or no diagnostic is available */
-int PUBLIC_API_WEAK boardGetAnalogDiagnostic() {
-	return 0;
+ObdCode PUBLIC_API_WEAK boardGetAnalogDiagnostic() {
+	return ObdCode::None;
 }
 
 /* simple implementation if board does not provide advanced diagnostic */
@@ -29,37 +29,80 @@ int PUBLIC_API_WEAK boardGetAnalogInputDiagnostic(adc_channel_e channel, float) 
 #if EFI_PROD_CODE
 	/* for on-chip ADC inputs we check common analog health */
 	if (isAdcChannelOnChip(channel)) {
-		return boardGetAnalogDiagnostic();
+		return (boardGetAnalogDiagnostic() == ObdCode::None) ? 0 : -1;
 	}
+#else
+  UNUSED(channel);
 #endif // EFI_PROD_CODE
 
 	/* input is outside chip/ECU */
 	return 0;
 }
 
+static ObdCode analogGetVrefDiagnostic()
+{
+#if HAL_USE_ADC
+	float vref = getMCUVref();
+
+	// TODO: +/-10% is way too big?
+	if (vref > engineConfiguration->adcVcc * 1.1) {
+		return ObdCode::OBD_Sensor_Refence_Voltate_A_High;
+	}
+
+	if (vref < engineConfiguration->adcVcc * 0.9) {
+		return ObdCode::OBD_Sensor_Refence_Voltate_A_Low;
+	}
+#endif
+
+	return ObdCode::None;
+}
+
 /* Get analog part diagnostic */
-int analogGetDiagnostic()
+ObdCode analogGetDiagnostic()
 {
 	/* TODO: debounce? */
+	auto code = analogGetVrefDiagnostic();
+	if (code != ObdCode::None) {
+		return code;
+	}
+
 	return boardGetAnalogDiagnostic();
 }
 
 #if HAL_USE_ADC
 
+#include "adc_device.h"
 #include "adc_subscription.h"
-#include "AdcDevice.h"
 #include "mpu_util.h"
 #include "protected_gpio.h"
 
+// voltage in MCU universe, from zero to Vref
+expected<float> adcGetRawVoltage(const char *msg, adc_channel_e hwChannel) {
+	float rawVoltage = adcRawValueToRawVoltage(adcGetRawValue(msg, hwChannel));
+	int inputStatus = boardGetAnalogInputDiagnostic(hwChannel, rawVoltage);
+
+	if (inputStatus == 0) {
+		return expected(rawVoltage);
+	}
+
+	/* TODO: convert inputStatus to unexpected? */
+	return unexpected;
+}
+
+// voltage in ECU universe, with all input dividers and OpAmps gains taken into account, voltage at ECU connector pin
+expected<float> adcGetScaledVoltage(const char *msg, adc_channel_e hwChannel) {
+	auto rawVoltage = adcGetRawVoltage(msg, hwChannel);
+
+	if (rawVoltage) {
+		// TODO: merge getAnalogInputDividerCoefficient() and boardAdjustVoltage() into single board hook?
+		float voltage = rawVoltage.value_or(0) * getAnalogInputDividerCoefficient(hwChannel);
+		return expected(boardAdjustVoltage(voltage, hwChannel));
+	}
+
+	return expected(rawVoltage);
+}
+
 extern AdcDevice fastAdc;
-
-/* TODO: Drop NO_CACHE for F4 and F7 couse with ADCv2 driver CPU does averaging and CPU stores result to this array */
-/* TODO: store summ of samples is this array and divide on oversample factor only when converting to float - this will increase accuracity */
-static volatile NO_CACHE adcsample_t slowAdcSamples[SLOW_ADC_CHANNEL_COUNT];
-
-static uint32_t slowAdcConversionCount = 0;
-
-static float mcuTemperature;
 
 static AdcChannelMode adcHwChannelMode[EFI_ADC_TOTAL_CHANNELS];
 
@@ -70,9 +113,7 @@ AdcChannelMode getAdcMode(adc_channel_e hwChannel) {
 	return adcHwChannelMode[hwChannel];
 }
 
-float getMCUInternalTemperature() {
-	return mcuTemperature;
-}
+extern adcsample_t adcOnchipSlowGetAvgRaw(adc_channel_e hwChannel);
 
 int getInternalAdcValue(const char *msg, adc_channel_e hwChannel) {
 	if (!isAdcChannelValid(hwChannel)) {
@@ -86,7 +127,7 @@ int getInternalAdcValue(const char *msg, adc_channel_e hwChannel) {
 	}
 #endif // EFI_USE_FAST_ADC
 
-	return slowAdcSamples[hwChannel - EFI_ADC_0];
+	return adcOnchipSlowGetAvgRaw(hwChannel);
 }
 
 static void printAdcValue(int channel) {
@@ -100,21 +141,23 @@ static void printAdcValue(int channel) {
 	efiPrintf("adc %d input %.3fV", channel, voltsInput);
 }
 
-static void printAdcChannedReport(const char *prefix, int internalIndex, adc_channel_e hwChannel)
+void adcPrintChannelReport(const char *prefix, int internalIndex, adc_channel_e hwChannel)
 {
 	if (isAdcChannelValid(hwChannel)) {
 		ioportid_t port = getAdcChannelPort("print", hwChannel);
 		int pin = getAdcChannelPin(hwChannel);
 		int adcValue = adcGetRawValue("print", hwChannel);
-		float volts = adcGetRawVoltage("print", hwChannel);
-		float voltsInput = adcGetScaledVoltage("print", hwChannel);
+		auto volts = adcGetRawVoltage("print", hwChannel);
+		auto voltsInput = adcGetScaledVoltage("print", hwChannel);
 		/* Human index starts from 1 */
-		efiPrintf(" %s ch[%2d] @ %s%d ADC%d 12bit=%4d %.3fV input %.3fV",
+		efiPrintf(" %s ch[%2d] @ %s%d ADC%d 12bit=%4d %.3fV input %.3fV %s",
 			prefix, internalIndex, portname(port), pin,
 			/* TODO: */ hwChannel - EFI_ADC_0 + 1,
-			adcValue, volts, voltsInput);
+			adcValue, volts.value_or(0), voltsInput.value_or(0), volts ? "valid" : "INVALID");
 	}
 }
+
+extern void adcOnchipSlowShowReport();
 
 void printFullAdcReport(void) {
 #if EFI_USE_FAST_ADC
@@ -123,17 +166,11 @@ void printFullAdcReport(void) {
 	for (int internalIndex = 0; internalIndex < fastAdc.size(); internalIndex++) {
 		adc_channel_e hwChannel = fastAdc.getAdcChannelByInternalIndex(internalIndex);
 
-		printAdcChannedReport("F", internalIndex, hwChannel);
+		adcPrintChannelReport("F", internalIndex, hwChannel);
 	}
 #endif // EFI_USE_FAST_ADC
-	efiPrintf("slow %lu samples", slowAdcConversionCount);
 
-	/* we assume that all slow ADC channels are enabled */
-	for (int internalIndex = 0; internalIndex < ADC_MAX_CHANNELS_COUNT; internalIndex++) {
-		adc_channel_e hwChannel = static_cast<adc_channel_e>(internalIndex + EFI_ADC_0);
-
-		printAdcChannedReport("S", internalIndex, hwChannel);
-	}
+	adcOnchipSlowShowReport();
 }
 
 static void setAdcDebugReporting(int value) {
@@ -141,30 +178,13 @@ static void setAdcDebugReporting(int value) {
 	efiPrintf("adcDebug=%d", adcDebugReporting);
 }
 
-void updateSlowAdc(efitick_t nowNt) {
-	{
-		ScopePerf perf(PE::AdcConversionSlow);
+extern void adcOnchipSlowUpdate(efitick_t nowNt);
 
-		/* drop volatile type qualifier - this is safe */
-		if (!readSlowAnalogInputs((adcsample_t *)slowAdcSamples)) {
-			engine->outputChannels.slowAdcErrorCount++;
-			return;
-		}
-
-		// Ask the port to sample the MCU temperature
-		mcuTemperature = getMcuTemperature();
-		if (mcuTemperature > 150.0f || mcuTemperature < -50.0f) {
-			/*
-			 * we have a sporadic issue with this check todo https://github.com/rusefi/rusefi/issues/2552
-			 */
-			//criticalError("Invalid CPU temperature measured %f", degrees);
-		}
-	}
+void adcInputsUpdateSubscribers(efitick_t nowNt) {
+	adcOnchipSlowUpdate(nowNt);
 
 	{
 		ScopePerf perf(PE::AdcProcessSlow);
-
-		slowAdcConversionCount++;
 
 		AdcSubscription::UpdateSubscribers(nowNt);
 
@@ -220,14 +240,6 @@ static void configureInputs() {
 	setAdcChannelOverrides();
 }
 
-void waitForSlowAdc(uint32_t lastAdcCounter) {
-	// note that having ADC reading is one thing while having new sensor API is a totally different thing!
-	// todo: use sync.objects?
-	while (slowAdcConversionCount <= lastAdcCounter) {
-		chThdSleepMilliseconds(1);
-	}
-}
-
 void initAdcInputs() {
 	efiPrintf("initAdcInputs()");
 
@@ -237,6 +249,7 @@ void initAdcInputs() {
 	addConsoleActionI("adcdebug", &setAdcDebugReporting);
 
 #if EFI_INTERNAL_ADC
+	// This will start HW for all used ADCs
 	portInitAdc();
 
 #if EFI_USE_FAST_ADC
@@ -251,7 +264,7 @@ void initAdcInputs() {
 
 	// Workaround to pre-feed all sensors with some data...
 	chThdSleepMilliseconds(1);
-	updateSlowAdc(getTimeNowNt());
+	adcInputsUpdateSubscribers(getTimeNowNt());
 }
 
 void printFullAdcReportIfNeeded(void) {
@@ -263,13 +276,13 @@ void printFullAdcReportIfNeeded(void) {
 #else /* not HAL_USE_ADC */
 
 // voltage in MCU universe, from zero to VDD
-__attribute__((weak)) float adcGetRawVoltage(const char*, adc_channel_e) {
-	return 0;
+__attribute__((weak)) expected<float> adcGetRawVoltage(const char*, adc_channel_e) {
+	return expected(0.0f);
 }
 
 // voltage in ECU universe, with all input dividers and OpAmps gains taken into account, voltage at ECU connector pin
-__attribute__((weak)) float adcGetScaledVoltage(const char*, adc_channel_e) {
-	return 0;
+__attribute__((weak)) expected<float> adcGetScaledVoltage(const char*, adc_channel_e) {
+	return expected(0.0f);
 }
 
 #endif

@@ -195,7 +195,7 @@ public:
 	void setTriggerSynchronizationGap(float syncRatio);
 	/**
 	 * note that index is in reverse order comparing with chronological order on the documentation images
-	 * https://github.com/rusefi/rusefi/wiki/All-Supported-Triggers
+	 * https://wiki.rusefi.com/All-Supported-Triggers
 	 */
 	void setTriggerSynchronizationGap3(int index, float syncRatioFrom, float syncRatioTo);
 	void setTriggerSynchronizationGap4(int index, float syncRatio) {
@@ -237,6 +237,8 @@ public:
 
 	uint16_t findAngleIndex(TriggerFormDetails *details, angle_t angle) const;
 
+	TriggerWheel getWheel(size_t index);
+
 	/**
 	 * These angles are in trigger DESCRIPTION coordinates - i.e. the way you add events while declaring trigger shape
 	 */
@@ -267,3 +269,5 @@ public:
 	 */
 	angle_t eventAngles[2 * PWM_PHASE_MAX_COUNT];
 };
+
+void initializeCamRiseOnly(TriggerWaveform *s, float w, const angle_t angles[], size_t count);

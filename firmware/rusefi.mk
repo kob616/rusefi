@@ -1,22 +1,4 @@
 
-CHIBIOS_FILE=$(CHIBIOS)/os/readme.txt
-ifeq ("$(wildcard $(CHIBIOS_FILE))","")
-$(info $(CHIBIOS_FILE) not found. Chibios: Invoking "git submodule update --init")
-$(shell git submodule update --init)
-$(info Invoked "git submodule update --init")
-# make is not happy about newly checked out module for some reason but next invocation would work
-$(error Please run 'make' again. Please make sure you have 'git' command in PATH)
-endif
-
-CHIBIOS_CONTRIB_FILE=$(CHIBIOS_CONTRIB)/os/hal/hal.mk
-ifeq ("$(wildcard $(CHIBIOS_CONTRIB_FILE))","")
-$(info $(CHIBIOS_CONTRIB_FILE) not found. Contrib: Invoking "git submodule update --init")
-$(shell git submodule update --init)
-$(info Invoked "git submodule update --init")
-# make is not happy about newly checked out module for some reason but next invocation would work
-$(error Please run 'make' again. Please make sure you have 'git' command in PATH)
-endif
-
 ifeq ($(PROJECT_BOARD),)
 ifneq ($(SHORT_BOARD_NAME),)
   PROJECT_BOARD = $(SHORT_BOARD_NAME)
@@ -45,31 +27,32 @@ endif
 
 -include $(BOARD_DIR)/config.mk
 
-PIN_NAMES_FILE=$(BOARD_DIR)/connectors/generated_ts_name_by_pin.cpp
-
-ifneq ("$(wildcard $(PIN_NAMES_FILE))","")
-$(info found $(PIN_NAMES_FILE) )
-ALLCPPSRC += $(PIN_NAMES_FILE)
+# Build the generated pin code only if the connector directory exists
+ifneq ("$(wildcard $(BOARD_DIR)/connectors/*.yaml)","")
+  ALLCPPSRC += $(BOARD_DIR)/connectors/generated_ts_name_by_pin.cpp
 endif
 
 # CPU-dependent defs
 ifeq ($(PROJECT_CPU),ARCH_STM32F7)
   CPU_STARTUP = startup_stm32f7xx.mk
-  # next file is included through Contrib's platform.ml
+  # next file is included through Contrib's platform.mk
   #CPU_PLATFORM = $(CHIBIOS)/os/hal/ports/STM32/STM32F7xx/platform.mk
   CPU_PLATFORM = ${CHIBIOS_CONTRIB}/os/hal/ports/STM32/STM32F7xx/platform.mk
   CPU_HWLAYER = ports/stm32/stm32f7
 else ifeq ($(PROJECT_CPU),ARCH_STM32F4)
   CPU_STARTUP = startup_stm32f4xx.mk
-  # next file is included through Contrib's platform.ml
+  # next file is included through Contrib's platform.mk
   #CPU_PLATFORM = $(CHIBIOS)/os/hal/ports/STM32/STM32F4xx/platform.mk
   CPU_PLATFORM = ${CHIBIOS_CONTRIB}/os/hal/ports/STM32/STM32F4xx/platform.mk
   CPU_HWLAYER = ports/stm32/stm32f4
 else ifeq ($(PROJECT_CPU),ARCH_STM32H7)
   CPU_STARTUP = startup_stm32h7xx.mk
-  # next file is included through Contrib's platform.ml
-  #CPU_PLATFORM = $(CHIBIOS)/os/hal/ports/STM32/STM32H7xx/platform.mk
-  CPU_PLATFORM = ${CHIBIOS_CONTRIB}/os/hal/ports/STM32/STM32H7xx/platform.mk
+  # TODO: why different platform.mk for different H7?
+  ifeq ($(CHIBIOS_MCU_TYPE),STM32H723xx)
+    CPU_PLATFORM = $(CHIBIOS)/os/hal/ports/STM32/STM32H7xx/platform_type2.mk
+  else
+    CPU_PLATFORM = ${CHIBIOS_CONTRIB}/os/hal/ports/STM32/STM32H7xx/platform.mk
+  endif
   CPU_HWLAYER = ports/stm32/stm32h7
 else ifeq ($(PROJECT_CPU),ARCH_AT32F4)
   CPU_STARTUP = startup_at32f4xx.mk

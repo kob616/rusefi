@@ -12,6 +12,8 @@
 #define PACK_MULT_LAMBDA 10000
 #define PACK_MULT_ANGLE 50
 #define PACK_MULT_VOLTAGE 1000
+! see TPS_TS_CONVERSION, this is related on how TS handles voltage for TPS calibration
+#define PACK_MULT_RAW_VOLTAGE 0.005
 #define PACK_MULT_MASS_FLOW 10
 #define TPS_2_BYTE_PACKING_MULT 100
 #define PACK_MULT_AFR_CFG 10
@@ -29,6 +31,15 @@
 
 #define VE_RPM_COUNT 16
 #define VE_LOAD_COUNT 16
+
+#define MAP_UPPER_LIMIT 650
+
+#define IGN_LOAD_COUNT 16
+#define IGN_RPM_COUNT 16
+#define BLEND_FACTOR_SIZE 8
+
+#define TORQUE_CURVE_SIZE 6
+#define TORQUE_CURVE_RPM_SIZE 6
 
 #define TCU_GEAR_COUNT 10
 #define EGT_CHANNEL_COUNT 8
@@ -90,7 +101,7 @@
 #define GAUGE_NAME_TIME "Time"
 #define GAUGE_NAME_RPM "RPM"
 #define GAUGE_NAME_CLT "CLT"
-#define GAUGE_NAME_IAT "IAT"
+#define GAUGE_NAME_IAT "Intake Air IAT"
 #define GAUGE_NAME_AUX_TEMP1 "Aux temp 1"
 #define GAUGE_NAME_AUX_TEMP2 "Aux temp 2"
 #define GAUGE_NAME_TPS "TPS"
@@ -175,13 +186,15 @@
 #define GAUGE_NAME_FUEL_RUNNING "Fuel: running"
 #define GAUGE_NAME_FUEL_LAST_INJECTION "Fuel: Last inj pulse width"
 #define GAUGE_NAME_FUEL_LAST_INJECTION_STAGE_2 "Fuel: Last inj pulse width stg 2"
+#define GAUGE_NAME_FUEL_LAST_INJECTION_RATIO "Fuel: Last inj pulse growth"
+#define GAUGE_NAME_FUEL_LAST_INJECTION_RATIO_STAGE_2 "Fuel: Last inj pulse growth stg 2"
 #define GAUGE_NAME_FUEL_BASE "Fuel: base cycle mass"
 #define GAUGE_NAME_FUEL_STFT_1 "Short Term Fuel Trim: Bank 1"
 #define GAUGE_NAME_FUEL_STFT_2 "Short Term Fuel Trim: Bank 2"
 #define GAUGE_NAME_FUEL_STFT_INPUT_1 "STFT input lambda error: Bank 1"
 #define GAUGE_NAME_FUEL_STFT_INPUT_2 "STFT input lambda error: Bank 2"
-#define GAUGE_NAME_FUEL_LTFT_1 "Long Term Fuel Trim: Bank 1"
-#define GAUGE_NAME_FUEL_LTFT_2 "Long Term Fuel Trim: Bank 2"
+#define GAUGE_NAME_FUEL_LTFT_1 "Long Term Fuel Trim Bank 1"
+#define GAUGE_NAME_FUEL_LTFT_2 "Long Term Fuel Trim Bank 2"
 #define GAUGE_NAME_FUEL_LTFT_ACC_1 "LTFT learned accumulator: Bank 1"
 #define GAUGE_NAME_FUEL_LTFT_ACC_2 "LTFT learned accumulator: Bank 2"
 #define GAUGE_NAME_FUEL_WALL_AMOUNT "Fuel: wall amount"
@@ -210,8 +223,17 @@
 #define GAUGE_LONG_NAME_CLT "Coolant temp"
 #define GAUGE_LONG_NAME_IAT "Intake air temp"
 #define UNITS_CELSIUS "C"
+#define UNITS_FAHRENHEIT "F"
+#define UNITS_KPA "kPa"
+#define UNITS_PSI "psi"
+#define UNITS_KMH "kmh"
+#define UNITS_MPH "mph"
 
-#define GAUGE_PRECISION_TEMPERATURE_C 1,1
+#define GAUGE_PRECISION_TEMPERATURE_C 1
+#define GAUGE_PRECISION_TEMPERATURE_F 2
+
+#define UNITS_KPA_TO_PSI 0.145038
+#define UNITS_KMH_TO_MPH 0.62137119
 
 #define GAUGE_NAME_ADJUSTED_TIMING "Timing: ignition"
 #define GAUGE_NAME_TIMING_ADVANCE "Timing: base ignition"
@@ -234,3 +256,4 @@
 #define GAUGE_NAME_DEBUG_I4 "debug i4"
 #define GAUGE_NAME_DEBUG_I5 "debug i5"
 
+#define DIALOG_NAME_VEHICLE_INFORMATION "Vehicle Information"

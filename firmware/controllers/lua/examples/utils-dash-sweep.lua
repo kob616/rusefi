@@ -5,7 +5,7 @@ timeout = 3000
 rpmSensor = Sensor.new("rpm")
 rpmSensor : setTimeout(timeout)
 
-ppsSensor = Sensor.new("AcceleratorPedal")
+ppsSensor = Sensor.new("AcceleratorPedalUnfiltered")
 ppsSensor : setTimeout(timeout)
 
 tpsSensor = Sensor.new("tps1")
@@ -13,6 +13,9 @@ tpsSensor : setTimeout(timeout)
 
 cltSensor = Sensor.new("clt")
 cltSensor : setTimeout(timeout)
+
+FuelLevel = Sensor.new("FuelLevel")
+FuelLevel : setTimeout(timeout)
 
 iatSensor = Sensor.new("iat")
 iatSensor : setTimeout(timeout)
@@ -31,7 +34,8 @@ oilP : setTimeout(timeout)
 
 function onTickDashSweep()
 
-  dashSweepCounter = 20
+-- uncomment line below if want static state
+-- dashSweepCounter = 20
 
   speedSensor : set(    3 * dashSweepCounter)
   ppsSensor : set( 10 +   dashSweepCounter)
@@ -40,6 +44,7 @@ function onTickDashSweep()
   iatSensor : set( 100 -   dashSweepCounter)
   mapSensor : set( dashSweepCounter / 2)
   oilP      : set( dashSweepCounter / 3)
+  FuelLevel : set( dashSweepCounter)
   --print()
 
   gearSensor: set( dashSweepCounter / 20)

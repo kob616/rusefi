@@ -1,10 +1,9 @@
 #include "pch.h"
-
 #include "defaults.h"
 #include "vr_pwm.h"
 #include "kline.h"
+#include "second_tables.h"
 #include "engine_configuration_defaults.h"
-#include "tuner_detector_utils.h"
 #include <rusefi/manifest.h>
 #if HW_PROTEUS
 #include "proteus_meta.h"
@@ -132,10 +131,6 @@ void defaultsOrFixOnBurn() {
     setDynoDefaults();
   }
 
-  if (TunerDetectorUtils::isTuningDetectorUndefined()) {
-  	TunerDetectorUtils::setUserEnteredTuningDetector(10);
-  }
-
 	if (engineConfiguration->mapExpAverageAlpha <= 0 || engineConfiguration->mapExpAverageAlpha > 1) {
 	  engineConfiguration->mapExpAverageAlpha = 1;
 	}
@@ -145,6 +140,16 @@ void defaultsOrFixOnBurn() {
 	}
 	if (engineConfiguration->afrExpAverageAlpha <= 0 || engineConfiguration->afrExpAverageAlpha > 1) {
 	  engineConfiguration->afrExpAverageAlpha = 1;
+	}
+
+	if (engineConfiguration->referenceTorqueForGenerator == 0) {
+  	engineConfiguration->referenceTorqueForGenerator = 250;
+	}
+	if (engineConfiguration->referenceMapForGenerator == 0) {
+  	engineConfiguration->referenceMapForGenerator = 100;
+	}
+	if (engineConfiguration->referenceVeForGenerator == 0) {
+  	engineConfiguration->referenceVeForGenerator = 75;
 	}
 
 	if (engineConfiguration->alternator_iTermMin == 0) {
@@ -173,16 +178,23 @@ void setDefaultBaseEngine() {
   engineConfiguration->cylindersCount = 1;
 #endif
 
+  engineConfiguration->isTuningDetectorEnabled = true;
+
   for (size_t i = 0; i < engineConfiguration->cylindersCount; i++) {
     // one knock sensor by default. See also 'setLeftRightBanksNeedBetterName()'
     // zero-based index
     engineConfiguration->cylinderBankSelect[i] = 0;
   }
 
+  engineConfiguration->ltft.enabled = true;
+  engineConfiguration->ltft.correctionEnabled = true;
+
 	engineConfiguration->compressionRatio = 9;
 	engineConfiguration->vssFilterReciprocal = VSS_FILTER_MIN;
 	engineConfiguration->boardUseCanTerminator = true;
 	engineConfiguration->acLowRpmLimit = 500;
+
+	engineConfiguration->mafFilterParameter = 1;
 
 #ifdef EFI_KLINE
   engineConfiguration->kLinePeriodUs = 300 /* us*/;
@@ -225,13 +237,15 @@ void setDefaultBaseEngine() {
 
 	mc33810defaults();
 
- 	setRpmTableBin(config->torqueRpmBins);
- 	setLinearCurve(config->torqueLoadBins, 0, 100, 1);
+ 	setRpmTableBin(secondTablesGetState()->torqueRpmBins);
+ 	// here we assume load is TPS
+ 	setLinearCurve(secondTablesGetState()->torqueLoadBins, 0, 100, 1);
 
-	engineConfiguration->fuelAlgorithm = LM_SPEED_DENSITY;
+	engineConfiguration->fuelAlgorithm = engine_load_mode_e::LM_SPEED_DENSITY;
 	// let's have valid default while we still have the field
 	engineConfiguration->debugMode = DBG_EXECUTOR;
 
+  engineConfiguration->speedometerPulsePerKm = 2485; // GM GMT800 platform
 
 	engineConfiguration->primingDelay = 0.5;
 	// this should not be below default rpm! maybe even make them equal?
@@ -255,7 +269,6 @@ void setDefaultBaseEngine() {
 
   engineConfiguration->tpsAccelFractionDivisor = 1;
 
-  engineConfiguration->rpmSoftLimitWindowSize = 200;
   engineConfiguration->rpmSoftLimitTimingRetard = 4;
 
 	// CLT RPM limit table - just the X axis
@@ -276,6 +289,12 @@ void setDefaultBaseEngine() {
     engineConfiguration->knockRetardReapplyRate = 3;
     engineConfiguration->knockFuelTrim = 0;
     engineConfiguration->knockSuppressMinTps = 10;
+
+  setRpmTableBin(config->maxKnockRetardRpmBins);
+  setLinearCurve(config->maxKnockRetardLoadBins, 0, 100, 1);
+  setRpmTableBin(config->knockGainRpmBins);
+  setLinearCurve(config->knockGainLoadBins, 0, 100, 1);
+  setTable(config->maxKnockRetardTable, 2);
 
 	// Trigger
 	engineConfiguration->trigger.type = trigger_type_e::TT_TOOTHED_WHEEL_60_2;
@@ -420,6 +439,9 @@ void setDefaultBaseEngine() {
 	setRpmTableBin(config->maximumOilPressureBins);
 
 	engine->engineModules.apply_all([](auto & m) { m.setDefaultConfiguration(); });
+
+	engineConfiguration->useMetricOnInterface = true;
+
   // we invoke this last so that we can validate even defaults
   defaultsOrFixOnBurn();
 }

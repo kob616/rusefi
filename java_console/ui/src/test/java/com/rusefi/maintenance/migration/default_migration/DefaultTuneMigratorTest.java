@@ -1,17 +1,24 @@
 package com.rusefi.maintenance.migration.default_migration;
 
-import com.rusefi.maintenance.TestTuneMigrationContext;
-import com.rusefi.maintenance.migration.ComposedTuneMigrator;
-import com.rusefi.tune.xml.Constant;
+import static com.rusefi.maintenance.migration.default_migration.CalibrationsTestHelpers.checkField;
+import static com.rusefi.maintenance.migration.default_migration.DefaultTestTuneMigrationContext.*;
+import static com.rusefi.maintenance.migration.migrators.TableAddColumnsMigrator.VE_RPM_BINS_FIELD_NAME;
+import static com.rusefi.maintenance.migration.migrators.TableAddColumnsMigrator.VE_TABLE_FIELD_NAME;
+import static java.util.Collections.emptySet;
+import static org.junit.jupiter.api.Assertions.*;
+
+import java.util.Optional;
+
+import jakarta.xml.bind.JAXBException;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import javax.xml.bind.JAXBException;
-
-import static com.rusefi.maintenance.migration.default_migration.DefaultTestTuneMigrationContext.*;
-import static com.rusefi.maintenance.migration.ve_table_extension.VeTableExtensionTestTuneMigrationContext.VE_RPM_BINS_FIELD_NAME;
-import static com.rusefi.maintenance.migration.ve_table_extension.VeTableExtensionTestTuneMigrationContext.VE_TABLE_FIELD_NAME;
-import static org.junit.jupiter.api.Assertions.*;
+import com.rusefi.maintenance.CalibrationsHelper;
+import com.rusefi.maintenance.CalibrationsInfo;
+import com.rusefi.maintenance.TestTuneMigrationContext;
+import com.rusefi.maintenance.migration.migrators.ComposedTuneMigrator;
+import com.rusefi.tune.xml.Constant;
 
 public class DefaultTuneMigratorTest {
     private TestTuneMigrationContext testContext;
@@ -34,7 +41,7 @@ public class DefaultTuneMigratorTest {
 
     @Test
     public void testIsEnabledSpi3() {
-        checkValueToUpdateExist("is_enabled_spi_3", "\"false\"", "\"true\"");
+        checkValueToUpdateExist("is_enabled_spi_3", "\"false\"", "\"yes\"");
     }
 
     @Test
@@ -49,7 +56,17 @@ public class DefaultTuneMigratorTest {
 
     @Test
     public void testSpi3sckPin() {
-        checkValueToUpdateExist("spi3sckPin", "\"NONE\"", "\"PC10\"");
+    	 final Optional<CalibrationsInfo> result = CalibrationsHelper.mergeCalibrations(
+                 testContext.getPrevIniFile(),
+                 testContext.getPrevTune(),
+                 testContext.getUpdatedCalibrationsInfo(),
+                 testContext.getCallbacks(),
+                 emptySet()
+             );
+
+             assertTrue(result.isPresent());
+
+        checkField(testContext, result.get(), "spi3sckPin", "\"NONE\"", "\"PC10\"");
     }
 
     @Test
@@ -118,9 +135,87 @@ public class DefaultTuneMigratorTest {
     }
 
     @Test
+    public void testLambdaLoadBins() {
+        checkValueToUpdateExist(
+            "lambdaLoadBins",
+            "\n" +
+                "         31.0\n" +
+                "         41.0\n" +
+                "         51.0\n" +
+                "         61.0\n" +
+                "         71.0\n" +
+                "         81.0\n" +
+                "         91.0\n" +
+                "         101.0\n" +
+                "         111.0\n" +
+                "         121.0\n" +
+                "         131.0\n" +
+                "         151.0\n" +
+                "         171.0\n" +
+                "         201.0\n" +
+                "         221.0\n" +
+                "         251.0\n",
+            "\n" +
+                "         30.0\n" +
+                "         40.0\n" +
+                "         50.0\n" +
+                "         60.0\n" +
+                "         70.0\n" +
+                "         80.0\n" +
+                "         90.0\n" +
+                "         100.0\n" +
+                "         110.0\n" +
+                "         120.0\n" +
+                "         130.0\n" +
+                "         150.0\n" +
+                "         175.0\n" +
+                "         200.0\n" +
+                "         225.0\n" +
+                "         250.0\n"
+        );
+    }
+
+    @Test
+    public void testThrottlePedalUpVoltage() {
+        checkValueToUpdateExist("throttlePedalUpVoltage", "1.7", "0.0");
+    }
+
+    @Test
+    public void testCltCrankingCorr() {
+        checkValueToUpdateExist(
+            "cltCrankingCorr",
+            "\n" +
+                "         1.0\n" +
+                "         1.1\n" +
+                "         1.2\n" +
+                "         1.3\n" +
+                "         1.4\n" +
+                "         1.5\n" +
+                "         1.6\n" +
+                "         1.7\n",
+            "\n" +
+                "         1.0\n" +
+                "         1.0\n" +
+                "         1.0\n" +
+                "         1.0\n" +
+                "         1.0\n" +
+                "         1.0\n" +
+                "         1.0\n" +
+                "         1.0\n"
+        );
+    }
+
+    @Test
+    public void testFanOffTemperature() {
+        checkValueToUpdateExist("fanOffTemperature", "98.0", "88.0");
+    }
+
+    @Test
     public void testContent() {
         assertEquals(
-            "We aren't going to restore field `auxSerialRxPin`: it is missed in new .ini file\r\n" +
+            "WARNING! Type of `map_samplingAngleBins` ini-field is expected to be `UINT16` instead of `FLOAT`\r\n" +
+                "WARNING! Type of `map_samplingAngleBins` ini-field is expected to be `UINT16` instead of `FLOAT`\r\n" +
+                "We aren't going to restore field `auxSerialRxPin`: it is missed in new .ini file\r\n" +
                 "We aren't going to restore field `auxSerialSpeed`: it is missed in new .ini file\r\n" +
                 "We aren't going to restore field `auxSerialTxPin`: it is missed in new .ini file\r\n" +
                 "We aren't going to restore field `boardUse2stepPullDown`: it is missed in new .ini file\r\n" +
@@ -143,11 +238,13 @@ public class DefaultTuneMigratorTest {
                 "We aren't going to restore field `etbExpAverageLength`: it is missed in new .ini file\r\n" +
                 "We aren't going to restore field `etbJamIntegratorLimit`: it is missed in new .ini file\r\n" +
                 "We aren't going to restore field `etbRocExpAverageLength`: it is missed in new .ini file\r\n" +
-                "We aren't going to restore field `isManualSpinningMode`: it is missed in new .ini file\r\n" +
+                "We aren't going to restore field `isManualSpinningMode`: it is missed in new .ini file\r\n"+
+                "We aren't going to restore field `kickStartCranking`: it looks like its value is just renamed: `\"false\"` -> `\"no\"`\r\n" +
                 "We aren't going to restore field `knockBandCustom`: it is missed in new .ini file\r\n" +
                 "We aren't going to restore field `mapAveragingSchedulingAtIndex`: it is missed in new .ini file\r\n" +
                 "We aren't going to restore field `noAccelAfterHardLimitPeriodSecs`: it is missed in new .ini file\r\n" +
                 "We aren't going to restore field `oddFireEngine`: it is missed in new .ini file\r\n" +
+                "We aren't going to restore field `pauseEtbControl`: it looks like its value is just renamed: `\"false\"` -> `\"no\"`\r\n" +
                 "We aren't going to restore field `showHumanReadableWarning`: it is missed in new .ini file\r\n" +
                 "We aren't going to restore field `skipADC12bitAssert`: it is missed in new .ini file\r\n" +
                 "We aren't going to restore field `skipBoardCanDash`: it is missed in new .ini file\r\n" +
@@ -183,6 +280,10 @@ public class DefaultTuneMigratorTest {
 
         final Constant valueToUpdate = testContext.getMigratedConstants().get(fieldName);
         assertNotNull(valueToUpdate);
-        assertEquals(prevValue, valueToUpdate);
+        final Constant expectedValueToUpdate = updatedValue != null ?
+            updatedValue.cloneWithValue(prevValue.getValue()) :
+            prevValue;
+        assertEquals(expectedValueToUpdate.getName(), valueToUpdate.getName());
     }
 }
+

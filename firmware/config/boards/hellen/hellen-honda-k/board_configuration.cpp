@@ -10,6 +10,7 @@
 #include "defaults.h"
 #include "hellen_meta.h"
 #include "honda_k_dbc.h"
+#include "board_overrides.h"
 
 static void setInjectorPins() {
 	engineConfiguration->injectionPins[0] = Gpio::H144_LS_1;
@@ -40,12 +41,8 @@ static void setupDefaultSensorInputs() {
 	engineConfiguration->iat.adcChannel = H144_IN_IAT;
 }
 
-void onBoardStandBy() {
-    efiPrintf("K: onBoardStandBy");
-    hellenBoardStandBy();
-}
 
-void setBoardConfigOverrides() {
+static void hellen_honda_k_boardConfigOverrides() {
 	setHellenMegaEnPin();
 
 	hellenMegaModule();
@@ -73,11 +70,11 @@ void setBoardConfigOverrides() {
 /**
  * @brief   Board-specific configuration defaults.
  *
- * See also setDefaultEngineConfiguration
+
  *
 
  */
-void setBoardDefaultConfiguration() {
+static void hellen_honda_k_boardDefaultConfiguration() {
 	setInjectorPins();
 	setIgnitionPins();
 	setHondaK();
@@ -94,7 +91,7 @@ void setBoardDefaultConfiguration() {
 
 	setHellenCan();
 
-    engineConfiguration->vvtPins[0] = Gpio::H144_OUT_PWM4;
+    engineConfiguration->vvtPins[0] = Gpio::H144_OUT_PWM5; // B23 VTC VVT
 
   gppwm_channel *vtsControl = &engineConfiguration->gppwm[0];
   vtsControl->pin = Gpio::H144_OUT_IO6;
@@ -116,7 +113,7 @@ void setBoardDefaultConfiguration() {
     config->hondaKcltGaugeAdder = 50;
     engineConfiguration->kLineBaudRate = 9600;
 	engineConfiguration->hondaK = true;
-	engineConfiguration->verboseKLine = true;
+	engineConfiguration->verboseKLine = false;
 
 	engineConfiguration->brakePedalPin = Gpio::H144_IN_CAM;
 	engineConfiguration->acRelayPin = Gpio::H144_LS_5;
@@ -132,7 +129,7 @@ void setBoardDefaultConfiguration() {
 	// Some sensible defaults for other options
 	setCrankOperationMode();
 
-	setAlgorithm(LM_SPEED_DENSITY);
+	setAlgorithm(engine_load_mode_e::LM_SPEED_DENSITY);
 
 	engineConfiguration->injectorCompensationMode = ICM_FixedRailPressure;
 
@@ -183,4 +180,13 @@ int getBoardMetaLowSideOutputsCount() {
 
 Gpio* getBoardMetaOutputs() {
     return OUTPUTS;
+}
+
+void setup_custom_board_overrides() {
+	custom_board_DefaultConfiguration = hellen_honda_k_boardDefaultConfiguration;
+	custom_board_ConfigOverrides = hellen_honda_k_boardConfigOverrides;
+	custom_board_onBoardStandBy = []() {
+		efiPrintf("K: onBoardStandBy");
+		hellenBoardStandBy();
+	};
 }

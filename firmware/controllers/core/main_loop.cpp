@@ -45,8 +45,10 @@ void MainLoop::PeriodicTask(efitick_t nowNt) {
 
 #if HAL_USE_ADC
 	if (currentLoopPeriod & ADC_UPDATE_RATE) {
-		updateSlowAdc(nowNt);
+		adcInputsUpdateSubscribers(nowNt);
 	}
+#else
+ UNUSED(nowNt);
 #endif // HAL_USE_ADC
 
 #if EFI_ELECTRONIC_THROTTLE_BODY

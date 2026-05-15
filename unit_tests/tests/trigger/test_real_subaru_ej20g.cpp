@@ -1,100 +1,110 @@
 #include "pch.h"
-
-#include "engine_csv_reader.h"
+#include "real_trigger_helper.h"
 
 TEST(real, SubaruEj20gcranking_only_cam7) {
-	EngineCsvReader reader(/*triggerCount*/ 2, /* vvtCount */ 0);
-
+	RealTriggerHelper helper;
 	/* 0 - cam
 	 * 1 - crank */
-	reader.open("tests/trigger/resources/subaru_6_7.csv");
+	engineConfiguration->invertPrimaryTriggerSignal = true;
 
-	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
-//	setVerboseTrigger(true);
-	eth.setTriggerType(trigger_type_e::TT_SUBARU_7_WITHOUT_6);
-
-	while (reader.haveMore()) {
-		reader.processLine(&eth);
-		reader.assertFirstRpm(259, /*expectedFirstRpmAtIndex*/36);
-	}
-
-	ASSERT_TRUE(reader.gotRpm);
-	ASSERT_FALSE(reader.gotSync);
-
+	helper.expectedFirstRpm = 240;
+	helper.expectedFirstRpmLineIndex = 38;
+	helper.runTest("tests/trigger/resources/subaru_6_7.csv", trigger_type_e::TT_VVT_SUBARU_7_WITHOUT_6, 1, 0, false, 0.0);
 	// this currently fails
 	//ASSERT_EQ(0u, eth.recentWarnings()->getCount());
 }
 
 TEST(real, SubaruEj20gDefaultCranking) {
-	EngineCsvReader reader(/*triggerCount*/ 2, /* vvtCount */ 0);
+	RealTriggerHelper helper;
 
 	/* 0 - cam
 	 * 1 - crank */
-	reader.open("tests/trigger/resources/subaru_6_7.csv");
-
-	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
-	//setVerboseTrigger(true);
-	eth.setTriggerType(trigger_type_e::TT_SUBARU_7_6);
 	engineConfiguration->invertPrimaryTriggerSignal = true;
 	engineConfiguration->invertSecondaryTriggerSignal = true;
 
-	engineConfiguration->isFasterEngineSpinUpEnabled = true;
-	engineConfiguration->alwaysInstantRpm = true;
-
-	int n = 0;
-	bool firstRpm = false;
-	while (reader.haveMore()) {
-		reader.processLine(&eth);
-
-		reader.assertFirstRpm(183, /*expectedFirstRpmAtIndex*/36);
-
-		//printf("%5d: RPM %f\n", n++, Sensor::getOrZero(SensorType::Rpm));
-		auto rpm = Sensor::getOrZero(SensorType::Rpm);
-		if ((rpm) && (!firstRpm)) {
-			printf("Got first RPM %f, at %d\n", rpm, n);
-			firstRpm = true;
-		}
-		if ((rpm == 0) && (firstRpm)) {
-			printf("Lost RPM at %d\n", n);
-			firstRpm = false;
-		}
-		n++;
-	}
+	helper.expectedFirstRpm = 193;
+	helper.expectedFirstRpmLineIndex = 38;
+	helper.runTest("tests/trigger/resources/subaru_6_7.csv", trigger_type_e::TT_SUBARU_7_6, 2, 0, false, 0.0);
 }
 
 TEST(real, SubaruEj20gCrankingWot) {
-	EngineCsvReader reader(/*triggerCount*/ 2, /* vvtCount */ 0);
-
+	RealTriggerHelper helper;
 	/* 0 - cam
 	 * 1 - crank */
-	reader.open("tests/trigger/resources/subaru_6_7_wot.csv");
-
-	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
-	//setVerboseTrigger(true);
-	eth.setTriggerType(trigger_type_e::TT_SUBARU_7_6);
 	engineConfiguration->invertPrimaryTriggerSignal = true;
 	engineConfiguration->invertSecondaryTriggerSignal = true;
 
-	engineConfiguration->isFasterEngineSpinUpEnabled = true;
-	engineConfiguration->alwaysInstantRpm = true;
+	helper.expectedFirstRpm = 188;
+	helper.expectedFirstRpmLineIndex = 32;
+	helper.runTest("tests/trigger/resources/subaru_6_7_wot.csv", trigger_type_e::TT_SUBARU_7_6, 2, 0, false, 0.0);
+}
 
-	int n = 0;
-	bool firstRpm = false;
-	while (reader.haveMore()) {
-		reader.processLine(&eth);
+TEST(real, SubaruEj20gDefaultCranking_only_crank) {
+	RealTriggerHelper helper;
+	engineConfiguration->invertPrimaryTriggerSignal = true;
 
-		reader.assertFirstRpm(179, /*expectedFirstRpmAtIndex*/30);
+	helper.expectedFirstRpm = 182;
+	helper.expectedFirstRpmLineIndex = 13;
+	helper.runTest("tests/trigger/resources/subaru_6_7_crank_first.csv", trigger_type_e::TT_SUBARU_7_6_CRANK, 1, 0, false, 0.0);
+}
 
-		//printf("%5d: RPM %f\n", n++, Sensor::getOrZero(SensorType::Rpm));
+TEST(real, SubaruEj20gDefaultCrankingSeparateTrigger) {
+	RealTriggerHelper helper;
+	/* 1 - cam
+	 * 0 - crank */
+	// test CSV file was captured without inversion of cam and crank signals.
+	// triggers are defined with SyncEdge::RiseOnly, while with real VR sensor we should rely on falling edges only.
+	// FallOnly is not supported (yet?). So trigger is defined as SyncEdge::RiseOnly and with 1 degree tooth width.
+	// setting both crank and cam inversion allows us to feed trigger decoder with correct (falling) edges.
+	engineConfiguration->vvtMode[0] = VVT_SUBARU_7TOOTH;
+	engineConfiguration->invertPrimaryTriggerSignal = true;
+	engineConfiguration->invertCamVVTSignal = true;
+
+	bool gotFullSync = false;
+
+	helper.expectedFirstRpm = 182;
+	helper.expectedFirstRpmLineIndex = 13;
+	helper.runTest("tests/trigger/resources/subaru_6_7_crank_first.csv", trigger_type_e::TT_SUBARU_7_6_CRANK, 1, 1, false, 0.0, [&](CsvReader& reader) {
 		auto rpm = Sensor::getOrZero(SensorType::Rpm);
-		if ((rpm) && (!firstRpm)) {
-			printf("Got first RPM %f, at %d\n", rpm, n);
-			firstRpm = true;
+		bool hasFullSync = getTriggerCentral()->triggerState.hasSynchronizedPhase();
+
+		if (!gotFullSync && hasFullSync && rpm) {
+			gotFullSync = true;
+
+			// Should get full sync and non-zero RPM
+			EXPECT_EQ(reader.lineIndex(), 38);
+			EXPECT_NEAR(rpm, 220.0f, 1.0f);
 		}
-		if ((rpm == 0) && (firstRpm)) {
-			printf("Lost RPM at %d\n", n);
-			firstRpm = false;
+	});
+}
+
+// Following test loses hasFullSync twice
+// Test also has RPM falling to zero twice
+// While real car was runnig fine while capturing this CSV
+// TODO: investigate
+// TODO: this test also triggers a watchdog warning after clearing the EngineTestHelper!
+TEST(real, SubaruEj20gDefaultRev) {
+	extern bool unitTestTaskNoFastCallWhileAdvancingTimeHack;
+	unitTestTaskNoFastCallWhileAdvancingTimeHack = true;
+
+	RealTriggerHelper helper;
+	/* 1 - cam
+	 * 0 - crank */
+	engineConfiguration->vvtMode[0] = VVT_SUBARU_7TOOTH;
+	engineConfiguration->invertPrimaryTriggerSignal = false;
+	engineConfiguration->invertCamVVTSignal = false;
+
+	bool gotFullSync = false;
+	helper.runTest("tests/trigger/resources/subaru_6_7_rev.csv", trigger_type_e::TT_SUBARU_7_6_CRANK, 1, 1, false, 0.0, [&](CsvReader& reader) {
+		auto rpm = Sensor::getOrZero(SensorType::Rpm);
+		bool hasFullSync = getTriggerCentral()->triggerState.hasSynchronizedPhase();
+
+		if (!gotFullSync && hasFullSync && rpm) {
+			gotFullSync = true;
+
+			// Should get full sync and non-zero RPM
+			EXPECT_EQ(reader.lineIndex(), 37);
+			EXPECT_NEAR(rpm, 2174.0f, 1.0f);
 		}
-		n++;
-	}
+	});
 }

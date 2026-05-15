@@ -30,7 +30,7 @@ static void set201xHyundai() {
     setTPS1Calibration(98, 926, 891, 69);
     setEtbPID(8.8944, 70.2307, 0.1855);
    	// Some sensible defaults for other options
-   	setAlgorithm(LM_SPEED_DENSITY);
+   	setAlgorithm(engine_load_mode_e::LM_SPEED_DENSITY);
 
   engineConfiguration->vvtControlMinRpm = 1500;
 }
@@ -137,7 +137,7 @@ void setHyundaiPb() {
 	engineConfiguration->startStopButtonMode = PI_DEFAULT;
 
 #if HW_PROTEUS || HW_HELLEN_4CHAN
-	strncpy(config->luaScript, GET_BIT_RANGE_LSB TWO_BYTES_LSB PRINT_ARRAY SET_TWO_BYTES_LSB HYUNDAI_SUM_NIBBLES R"(
+	setLuaScript( GET_BIT_RANGE_LSB TWO_BYTES_LSB PRINT_ARRAY SET_TWO_BYTES_LSB HYUNDAI_SUM_NIBBLES R"(
 
 GDI4_BASE_ADDRESS = 0xBB20
 GDI_CHANGE_ADDRESS = GDI4_BASE_ADDRESS + 0x10
@@ -247,7 +247,7 @@ function onTick()
 	txCan(1, GDI_CHANGE_ADDRESS + 4, 1, data_set_settings)
 end
 
-)", efi::size(config->luaScript));
+)");
 #endif // HW_PROTEUS
 
 }
@@ -339,7 +339,7 @@ static void commonGenesisCoupe() {
     engineConfiguration->auxPid[1].dFactor = 0.2;
 // end of canned tune
 
-	strncpy(config->luaScript, R"(
+	setLuaScript(R"(
 
 setTickRate(100)
 t = Timer.new()
@@ -425,7 +425,7 @@ function onTick()
 end
 
 
-)", efi::size(config->luaScript));
+)");
 }
 
 void setGenesisCoupeBK1() {

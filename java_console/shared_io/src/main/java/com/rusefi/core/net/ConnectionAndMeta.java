@@ -1,5 +1,6 @@
 package com.rusefi.core.net;
 
+import com.devexperts.logging.Logging;
 import org.jetbrains.annotations.NotNull;
 
 import javax.net.ssl.*;
@@ -13,32 +14,25 @@ import java.security.cert.X509Certificate;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import com.devexperts.logging.Logging;
+import static com.devexperts.logging.Logging.getLogging;
 
 public class ConnectionAndMeta {
+    private static final Logging log = getLogging(ConnectionAndMeta.class);
+
     public static final String BASE_URL_RELEASE = "https://github.com/rusefi/rusefi/releases/latest/download/";
     public static final String DEFAULT_WHITE_LABEL = "rusefi";
     public static final String AUTOUPDATE = "/autoupdate/";
+    public static final String RUSEFI_WIKI_DOWNLOAD_PAGE = "https://wiki.rusefi.com/Download/";
 
     private static final int BUFFER_SIZE = 32 * 1024;
-    private volatile static Properties properties; // sad: we do not completely understand #6777 but caching should not hurt
     public static final int CENTUM = 100;
-    public static final String IO_PROPERTIES = "/shared_io.properties";
     private final String zipFileName;
     private HttpsURLConnection httpConnection;
     private long completeFileSize;
     private long lastModified;
 
-    private static final Logging log = Logging.getLogging(ConnectionAndMeta.class);
-
     public ConnectionAndMeta(String zipFileName) {
         this.zipFileName = zipFileName;
-    }
-
-    public static String getBaseUrl() {
-        String result = getProperties().getProperty("auto_update_root_url");
-        System.out.println(ConnectionAndMeta.class + ": got [" + result + "]");
-        return result;
     }
 
     public static String getWhiteLabel(Properties properties) {
@@ -63,44 +57,25 @@ public class ConnectionAndMeta {
         return signatureWhiteLabel;
     }
 
-    public static boolean showUpdateCalibrations() {
-        return getBoolean("show_update_calibrations");
-    }
-
+    /*
+        public static boolean showUpdateCalibrations() {
+            return getBoolean("show_update_calibrations");
+        }
+    */
     public static boolean getBoolean(String propertyName) {
         return getBoolean(propertyName, getProperties());
     }
 
     public static boolean getBoolean(String propertyName, Properties properties) {
-        String flag = properties.getProperty(propertyName);
-        return Boolean.TRUE.toString().equalsIgnoreCase(flag);
+        return PropertiesHolder.INSTANCE.getBoolean(propertyName, properties);
     }
 
     public synchronized static Properties getProperties() throws RuntimeException {
-        if (properties == null) {
-            properties = getPropertiesForReal();
-        }
-        return properties;
-    }
-
-    private static Properties getPropertiesForReal() throws RuntimeException {
-        Properties props = new Properties();
-        try {
-            InputStream stream = ConnectionAndMeta.class.getResourceAsStream(IO_PROPERTIES);
-            if (stream == null) {
-                if (new File(".").getCanonicalPath().contains("!\\"))
-                    throw new IllegalArgumentException("Use folder names without exclamation marks at the end");
-                throw new NullPointerException("Error opening resource stream " + IO_PROPERTIES);
-            }
-            props.load(stream);
-            return props;
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        return PropertiesHolder.INSTANCE.getProperties();
     }
 
     public static String getDefaultAutoUpdateUrl() {
-        return getBaseUrl() + AUTOUPDATE;
+        return PropertiesHolder.INSTANCE.getBaseUrl() + AUTOUPDATE;
     }
 
     public static void downloadFile(String localTargetFileName, ConnectionAndMeta connectionAndMeta, DownloadProgressListener listener) throws IOException {
@@ -122,7 +97,7 @@ public class ConnectionAndMeta {
             // calculate progress
             int currentPercentage = (int) (CENTUM * downloadedFileSize / completeFileSize);
             if (currentPercentage > printedPercentage + 5) {
-                System.out.println("Downloaded " + currentPercentage + "%");
+                log.info("Downloaded " + currentPercentage + "%");
                 printedPercentage = currentPercentage;
                 listener.onPercentage(currentPercentage);
             }
@@ -147,10 +122,11 @@ public class ConnectionAndMeta {
         return Boolean.TRUE.toString().equalsIgnoreCase(getStringProperty(getProperties(), "write_readme_html", "false"));
     }
 
-    public static boolean startConsoleInAutoupdateProcess() {
-        return false;
-    }
-
+    /*
+        public static boolean startConsoleInAutoupdateProcess() {
+            return false;
+        }
+    */
     public static Set<String> getNonMigratableIniFields() {
         final String nonMergeableIniFields = getStringProperty(getProperties(), "non_migratable_ini_fields", "");
         return Arrays.stream(nonMergeableIniFields.split(","))
@@ -172,22 +148,50 @@ public class ConnectionAndMeta {
     }
 
     public ConnectionAndMeta invoke(String baseUrl) throws IOException {
+        SSLContext ctx = acceptAnyCertificate();
+
+        String randomSuffix = "?r=" + UUID.randomUUID();
+        URL url = new URL(baseUrl + zipFileName + randomSuffix);
+        log.info("Connecting to " + url);
+        httpConnection = (HttpsURLConnection) url.openConnection();
+        String mySecretUA = "RE-Internal-Sync";
+        httpConnection.setRequestProperty("User-Agent", mySecretUA);
+        httpConnection.setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate");
+        httpConnection.setSSLSocketFactory(ctx.getSocketFactory());
+        log.info("Request Headers: " + httpConnection.getRequestProperties());
+        int responseCode = httpConnection.getResponseCode();
+        log.info("Response code " + responseCode);
+        if (responseCode == HttpURLConnection.HTTP_FORBIDDEN) {
+            InputStream errorStream = httpConnection.getErrorStream();
+            echoErrorStream(errorStream);
+        }
+        completeFileSize = httpConnection.getContentLength();
+        lastModified = httpConnection.getLastModified();
+        return this;
+    }
+
+    private static void echoErrorStream(InputStream errorStream) {
+        String line;
+        while (true) {
+            try {
+                if (!((line = new BufferedReader(new InputStreamReader(errorStream)).readLine()) != null)) break;
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            log.warn("responce " + line);
+        }
+    }
+
+    private static @NotNull SSLContext acceptAnyCertificate() throws IOException {
         // user can have java with expired certificates or funny proxy, we shall accept any certificate :(
-        SSLContext ctx = null;
+        SSLContext ctx;
         try {
             ctx = SSLContext.getInstance("TLS");
             ctx.init(new KeyManager[0], new TrustManager[]{new AcceptAnyCertificateTrustManager()}, new SecureRandom());
         } catch (NoSuchAlgorithmException | KeyManagementException e) {
             throw new IOException("TLS exception", e);
         }
-
-        URL url = new URL(baseUrl + zipFileName);
-        System.out.println("Connecting to " + url);
-        httpConnection = (HttpsURLConnection) url.openConnection();
-        httpConnection.setSSLSocketFactory(ctx.getSocketFactory());
-        completeFileSize = httpConnection.getContentLength();
-        lastModified = httpConnection.getLastModified();
-        return this;
+        return ctx;
     }
 
     public interface DownloadProgressListener {

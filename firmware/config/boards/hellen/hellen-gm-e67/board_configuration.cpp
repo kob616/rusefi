@@ -12,6 +12,7 @@
 #include "hellen_meta.h"
 #include "gm_ls_4.h"
 #include "defaults.h"
+#include "board_overrides.h"
 
 static void setInjectorPins() {
 	engineConfiguration->injectionPins[0] = Gpio::H144_LS_1;
@@ -46,9 +47,9 @@ static void setupDefaultSensorInputs() {
 	engineConfiguration->triggerInputPins[1] = Gpio::Unassigned;
 	engineConfiguration->camInputs[0] = Gpio::H144_IN_SENS4;
 
-	setTPS1Inputs(H144_IN_TPS, H144_IN_AUX1);
+	setTPS1Inputs(H144_IN_TPS, H144_IN_AUX1_ANALOG);
 
-	setPPSInputs(H144_IN_PPS, H144_IN_AUX2);
+	setPPSInputs(H144_IN_PPS, H144_IN_AUX2_ANALOG);
 
 	engineConfiguration->mafAdcChannel = EFI_ADC_10;
 	engineConfiguration->map.sensor.hwChannel = EFI_ADC_11;
@@ -62,7 +63,7 @@ static void setupDefaultSensorInputs() {
 
 
 
-void setBoardConfigOverrides() {
+static void hellen_gm_e67_boardConfigOverrides() {
 	setHellenVbatt();
 
 	setHellenSdCardSpi2();
@@ -76,11 +77,11 @@ void setBoardConfigOverrides() {
 /**
  * @brief   Board-specific configuration defaults.
  *
- * See also setDefaultEngineConfiguration
+
  *
 
  */
-void setBoardDefaultConfiguration() {
+static void hellen_gm_e67_boardDefaultConfiguration() {
 	setInjectorPins();
 	setIgnitionPins();
 
@@ -118,4 +119,9 @@ void setBoardDefaultConfiguration() {
 	engineConfiguration->launchActivationMode = CLUTCH_INPUT_LAUNCH;
 // ?	engineConfiguration->malfunctionIndicatorPin = Gpio::G4; //1E - Check Engine Light
 
+}
+
+void setup_custom_board_overrides() {
+	custom_board_DefaultConfiguration = hellen_gm_e67_boardDefaultConfiguration;
+	custom_board_ConfigOverrides = hellen_gm_e67_boardConfigOverrides;
 }

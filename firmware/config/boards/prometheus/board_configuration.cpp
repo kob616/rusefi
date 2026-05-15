@@ -8,6 +8,7 @@
  */
 
 #include "pch.h"
+#include "board_overrides.h"
 
 #ifdef STM32F469xx
 static bool is469 = true;
@@ -50,8 +51,6 @@ static void setPrometheusDefaults() {
 	engineConfiguration->useLinearCltSensor = true;
 
 	engineConfiguration->canNbcType = CAN_BUS_MAZDA_RX8;
-	engineConfiguration->canReadEnabled = true;
-	engineConfiguration->canWriteEnabled = false;
 
 	engineConfiguration->tpsMin = convertVoltageTo10bitADC(0.250);
 	engineConfiguration->tpsMax = convertVoltageTo10bitADC(4.538);
@@ -107,7 +106,7 @@ void setPinConfigurationOverrides() {
  * @brief   Board-specific configuration defaults.
 
  */
-void setBoardDefaultConfiguration() {
+static void prometheus_boardDefaultConfiguration() {
 	// give a chance to trigger SWD programmer... Wait for 2 secs (=2000 ms).
 //	chThdSleepMilliseconds(2000);
 
@@ -193,4 +192,8 @@ void setBoardDefaultConfiguration() {
 
 Gpio getRunningLedPin() {
 	return Gpio::A13; //Gpio::A13; // yellow LED
+}
+
+void setup_custom_board_overrides() {
+	custom_board_DefaultConfiguration = prometheus_boardDefaultConfiguration;
 }

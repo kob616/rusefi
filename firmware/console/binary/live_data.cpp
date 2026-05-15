@@ -171,6 +171,7 @@ const trigger_state_s* getLiveData(size_t idx) {
 		default: return nullptr;
 	}
 #else
+	UNUSED(idx);
 	return nullptr;
 #endif
 }
@@ -186,6 +187,7 @@ const vvt_s* getLiveData(size_t idx) {
 		default: return nullptr;
 	}
 #else
+	UNUSED(idx);
 	return nullptr;
 #endif
 }
@@ -267,6 +269,7 @@ const mc33810_state_s* getLiveData(size_t idx) {
 #if (BOARD_MC33810_COUNT > 0)
 	return mc33810getLiveData(idx);
 #else
+	UNUSED(idx);
 	return nullptr;
 #endif
 }
@@ -303,6 +306,24 @@ template<>
 const live_data_example_s* getLiveData(size_t) {
 #if EFI_LTFT_CONTROL
 	return &engine->module<ExampleModule>().unmock();
+#else
+	return nullptr;
+#endif
+}
+
+template<>
+const vvl_controller_state_s* getLiveData(size_t) {
+#if MODULE_VVL_CONTROLLER
+	return &engine->module<VvlController>().unmock();
+#else
+	return nullptr;
+#endif
+}
+
+template<>
+const live_data_rotational_idle_s* getLiveData(size_t) {
+#if ROTATIONAL_IDLE_CONTROLLER
+	return &engine->rotationalIdleController;
 #else
 	return nullptr;
 #endif

@@ -8,6 +8,20 @@
 #include "defaults.h"
 #include "hellen_meta.h"
 #include "mega-uaefi.h"
+#include "board_overrides.h"
+
+Gpio getCommsLedPin() {
+	return Gpio::MM100_LED3_BLUE;
+}
+
+Gpio getRunningLedPin() {
+	// this one is used to drive tach pin 43
+	return Gpio::Unassigned;
+}
+
+Gpio getWarningLedPin() {
+	return Gpio::MM100_LED4_YELLOW;
+}
 
 static void setupDefaultSensorInputs() {
 	engineConfiguration->tps1_1AdcChannel = MM100_IN_TPS_ANALOG;
@@ -26,7 +40,7 @@ static void setupDefaultSensorInputs() {
   engineConfiguration->vehicleSpeedSensorInputPin = Gpio::MM100_IN_D1;  // HALL1
 }
 
-void setBoardDefaultConfiguration() {
+static void uaefi_121boardDefaultConfiguration() {
   setMegaUaefiBoardDefaultConfiguration();
 
   engineConfiguration->mainRelayPin = Gpio::MM100_IGN7;
@@ -121,4 +135,9 @@ Gpio* getBoardMetaOutputs() {
         return SBC_OUTPUTS;
     }
     return OUTPUTS;
+}
+
+void setup_custom_board_overrides() {
+	custom_board_DefaultConfiguration = uaefi_121boardDefaultConfiguration;
+	custom_board_ConfigOverrides = setMegaUaefiBoardConfigOverrides;
 }

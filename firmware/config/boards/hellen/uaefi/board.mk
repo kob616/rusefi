@@ -3,13 +3,30 @@
 # Target ECU board design
 BOARDCPPSRC = $(BOARD_DIR)/board_configuration.cpp
 
-
+ifeq ($(PROJECT_CPU),ARCH_STM32F7)
+	DDEFS += -DLUA_RX_MAX_FILTER_COUNT=96
+endif
 
 #no mux on mm100
 
 # Add them all together
 DDEFS += -DFIRMWARE_ID=\"uaefi\" $(VAR_DEF_ENGINE_TYPE)
-DDEFS += -DEFI_SOFTWARE_KNOCK=TRUE -DSTM32_ADC_USE_ADC3=TRUE
+
+#Knock is available on F4 and F7
+ifeq ($(PROJECT_CPU),ARCH_STM32H7)
+	# Default H743 linker script is not compatible
+	LDSCRIPT = $(PROJECT_DIR)/hw_layer/ports/stm32/stm32h7/STM32H723xG_ITCM64k.ld
+	# Do not use HSE autodetection
+	DDEFS += -DSTM32_HSECLK=20000000
+	DDEFS += -DENABLE_AUTO_DETECT_HSE=FALSE
+	# We are limited in flash
+	DDEFS += -DRAMDISK_INVALID
+	DEBUG_LEVEL_OPT = -Os -ggdb -g
+else
+	#Knock is available on F4 and F7 only
+	DDEFS += -DEFI_SOFTWARE_KNOCK=TRUE -DSTM32_ADC_USE_ADC3=TRUE
+endif
+
 # EGT chip
 DDEFS += -DEFI_MAX_31855=TRUE
 
@@ -38,6 +55,17 @@ DDEFS += -DWITH_LUA_STOP_ENGINE=FALSE
 
 DDEFS += $(PRIMARY_COMMUNICATION_PORT_USART2)
 
-DDEFS += -DUSB_DESCRIPTOR_B_LENGTH=24
-DDEFS += -DUSB_DESCRIPTOR_STRING_CONTENT="'r', 0, 'u', 0, 's', 0, 'E', 0, 'F', 0, 'I', 0, ' ', 0, 'u', 0, 'a', 0, 'E', 0, 'F', 0, 'I', 0"
+ifeq ($(PROJECT_CPU),ARCH_STM32F7)
+ DDEFS += -DUSB_DESCRIPTOR_STRING_CONTENT="'r', 0, 'u', 0, 's', 0, 'E', 0, 'F', 0, 'I', 0, ' ', 0, 'u', 0, 'a', 0, 'E', 0, 'F', 0, 'I', 0, ' ', 0, 'P', 0, 'R', 0, 'O', 0"
+else
+ DDEFS += -DUSB_DESCRIPTOR_STRING_CONTENT="'r', 0, 'u', 0, 's', 0, 'E', 0, 'F', 0, 'I', 0, ' ', 0, 'u', 0, 'a', 0, 'E', 0, 'F', 0, 'I', 0"
+endif
 
+DDEFS += -DBOARD_SERIAL="\"000000000000000000000000\""
+
+# CAND1
+DDEFS += -DBOOT_COM_CAN_CHANNEL_INDEX=0
+DDEFS += -DOPENBLT_CAN_RX_PORT=GPIOD
+DDEFS += -DOPENBLT_CAN_RX_PIN=0
+DDEFS += -DOPENBLT_CAN_TX_PORT=GPIOD
+DDEFS += -DOPENBLT_CAN_TX_PIN=1

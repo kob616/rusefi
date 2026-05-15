@@ -1,9 +1,9 @@
 package com.rusefi.tools.tune;
 
-import com.opensr5.ini.IniFileModelImpl;
-import com.rusefi.RootHolder;
+import com.rusefi.ini.reader.IniFileReaderUtil;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -14,7 +14,11 @@ public class TuneCanToolHelper {
     private static final Set<String> WHITE_LIST = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
 
     protected static void initialize(String iniFileName) {
-        TuneCanTool.ini = IniFileModelImpl.readIniFile(iniFileName);
+        try {
+            TuneCanTool.ini = IniFileReaderUtil.readIniFile(iniFileName);
+        } catch (FileNotFoundException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     static void readIgnoreList(String ignoreListFileName) throws IOException {

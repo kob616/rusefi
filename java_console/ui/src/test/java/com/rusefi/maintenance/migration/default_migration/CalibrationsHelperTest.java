@@ -5,17 +5,17 @@ import com.rusefi.config.FieldType;
 import com.rusefi.maintenance.CalibrationsHelper;
 import com.rusefi.maintenance.CalibrationsInfo;
 import com.rusefi.maintenance.TestTuneMigrationContext;
-import com.rusefi.tune.xml.Constant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import javax.xml.bind.JAXBException;
+import jakarta.xml.bind.JAXBException;
 
-import java.util.Map;
 import java.util.Optional;
 
 import static com.rusefi.maintenance.migration.default_migration.DefaultTestTuneMigrationContext.*;
+import static java.util.Collections.emptySet;
 import static org.junit.jupiter.api.Assertions.*;
+import static javax.management.ObjectName.quote;
 
 public class CalibrationsHelperTest {
     TestTuneMigrationContext testContext;
@@ -26,9 +26,11 @@ public class CalibrationsHelperTest {
     public void setUp() throws JAXBException {
         testContext = DefaultTestTuneMigrationContext.load();
         final Optional<CalibrationsInfo> result = CalibrationsHelper.mergeCalibrations(
-            testContext.getPrevCalibrationsInfo(),
+            testContext.getPrevIniFile(),
+            testContext.getPrevTune(),
             testContext.getUpdatedCalibrationsInfo(),
-            testContext.getCallbacks()
+            testContext.getCallbacks(),
+            emptySet()
         );
         assertTrue(result.isPresent());
         mergedCalibrations = result.get();
@@ -41,7 +43,7 @@ public class CalibrationsHelperTest {
 
     @Test
     public void testIsEnabledSpi3() {
-        checkField("is_enabled_spi_3", "\"false\"", "\"true\"");
+    	checkField("is_enabled_spi_3", quote("false"), quote("yes"), quote("no"));
     }
 
     @Test
@@ -149,21 +151,13 @@ public class CalibrationsHelperTest {
         final String expectedUpdatedValue,
         final String expectedMergedValue
     ) {
-        assertEquals(
+        CalibrationsTestHelpers.checkField(
+            testContext,
+            mergedCalibrations,
+            fieldName,
             expectedPrevValue,
-            testContext.getPrevValue(fieldName).getValue(),
-            String.format("Unexpected prev `%s` field value", fieldName)
-        );
-        assertEquals(
             expectedUpdatedValue,
-            testContext.getUpdatedValue(fieldName).getValue(),
-            String.format("Unexpected updated `%s` field value", fieldName)
-        );
-        final Map<String, Constant> mergedConstants = mergedCalibrations.generateMsq().getConstantsAsMap();
-        assertEquals(
-            expectedMergedValue,
-            mergedConstants.get(fieldName).getValue(),
-            String.format("Unexpected merged `%s` field value", fieldName)
+            expectedMergedValue
         );
     }
 
@@ -175,3 +169,4 @@ public class CalibrationsHelperTest {
         checkField(fieldName, expectedPrevValue, expectedUpdatedValue, expectedPrevValue);
     }
 }
+

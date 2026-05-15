@@ -13,17 +13,18 @@
 
 #include "rusefi.h"
 #include "mpu_util.h"
+
+#include "fw_configuration.h"
 #include "board_overrides.h"
 
-// this function is used to link all the posibles overrides of the bord, is one of the first func call, before any hw init!
+// this function is used to link all the possibles overrides of the bord, is one of the first func call, before any hw init!
 // use ONLY for the setup of the overrides!!
-// note: this function is weak until we migrate all the other func & boards, make required after the migration!
-PUBLIC_API_WEAK void setup_custom_board_overrides() {
-}
+void setup_custom_board_overrides();
 
 std::optional<setup_custom_board_overrides_type> custom_board_preHalInit;
 
 int main(void) {
+	setup_custom_fw_overrides();
 	setup_custom_board_overrides();
 	// Maybe your board needs to do something special before HAL init
 	preHalInit();

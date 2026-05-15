@@ -59,7 +59,7 @@ void printConfiguration() {
 	efiPrintf("Template %s/%d trigger %s/%s/%d", getEngine_type_e(engineConfiguration->engineType),
 			(int)engineConfiguration->engineType,
 			getTrigger_type_e(engineConfiguration->trigger.type),
-			getEngine_load_mode_e(engineConfiguration->fuelAlgorithm), (int)engineConfiguration->fuelAlgorithm);
+			Enum2String(engineConfiguration->fuelAlgorithm), (int)engineConfiguration->fuelAlgorithm);
 
 	efiPrintf("configurationVersion=%d", engine->getGlobalConfigurationVersion());
 
@@ -378,6 +378,17 @@ static void enableOrDisable(const char *param, bool isEnabled) {
 		engineConfiguration->verboseCan = isEnabled;
 	} else if (strEqualCaseInsensitive(param, "verboseCan2")) {
 		engineConfiguration->verboseCan2 = isEnabled;
+
+#if EFI_PROD_CODE
+	} else if (strEqualCaseInsensitive(param, "verboseCanTxErr")) {
+extern bool verboseCanTxError;
+		verboseCanTxError = isEnabled;
+#endif // EFI_PROD_CODE
+
+#if (EFI_CAN_BUS_COUNT >= 3)
+	} else if (strEqualCaseInsensitive(param, "verboseCan3")) {
+		engineConfiguration->verboseCan3 = isEnabled;
+#endif
 	} else if (strEqualCaseInsensitive(param, "verboseIsoTp")) {
 		engineConfiguration->verboseIsoTp = isEnabled;
 	} else if (strEqualCaseInsensitive(param, "artificialMisfire")) {
@@ -722,6 +733,7 @@ void setDateTime(const char * const isoDateTime) {
 	}
 	efiPrintf("date_set Date parameter %s is wrong", isoDateTime);
 #else // EFI_RTC
+  UNUSED(isoDateTime);
 	efiPrintf("Cannot set time: RTC not supported");
 #endif // EFI_RTC
 }
@@ -752,4 +764,8 @@ void setEngineType(int value, bool isWriteToFlash) {
 #if EFI_ENGINE_CONTROL && ! EFI_UNIT_TEST
 	printConfiguration();
 #endif // ! EFI_UNIT_TEST
+}
+
+void setLuaScript(const char *luaScript) {
+	strncpy(config->luaScript, luaScript, efi::size(config->luaScript) - 1);
 }

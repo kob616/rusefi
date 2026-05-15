@@ -277,6 +277,7 @@ int MsIoBox::config(uint32_t bus, uint32_t base, uint16_t period)
 
 bool MsIoBox::acceptFrame(const size_t busIndex, const CANRxFrame& frame) const {
 	/* TODO: check busIndex! */
+	UNUSED(busIndex);
 
 	/* 11 bit only */
 	if (CAN_ISX(frame)) {
@@ -416,7 +417,7 @@ void MsIoBox::decodeFrame(const CANRxFrame& frame, efitick_t) {
 }
 
 /* gpio chip stuff */
-int MsIoBox::writePad(unsigned int pin, int value) {
+int MsIoBox::writePad(size_t pin, int value) {
 	if (pin >= MSIOBOX_OUTPUTS)
 		return -1;
 

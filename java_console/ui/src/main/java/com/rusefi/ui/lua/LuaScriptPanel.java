@@ -4,8 +4,8 @@ import com.devexperts.logging.Logging;
 import com.opensr5.ConfigurationImage;
 import com.opensr5.ini.IniFileModel;
 import com.opensr5.ini.field.StringIniField;
-import com.rusefi.ConnectionTab;
 import com.rusefi.binaryprotocol.BinaryProtocol;
+import com.rusefi.binaryprotocol.ShortcutsHelper;
 import com.rusefi.core.ui.AutoupdateUtil;
 import com.rusefi.io.ConnectionStatusLogic;
 import com.rusefi.io.LinkManager;
@@ -44,7 +44,6 @@ public class LuaScriptPanel {
     public LuaScriptPanel(UIContext context, Node config) {
         this.context = context;
         this.config = config;
-        ConnectionTab.installConnectAndDisconnect(context, mainPanel);
         command = AnyCommand.createField(context, config, true, true);
 
         // Upper panel: command entry, etc
@@ -68,7 +67,7 @@ public class LuaScriptPanel {
             LinkManager linkManager = context.getLinkManager();
 
             linkManager.submit(() -> {
-                BinaryProtocol bp = linkManager.getCurrentStreamState();
+                BinaryProtocol bp = linkManager.getBinaryProtocol();
                 bp.burn();
             });
         });
@@ -116,17 +115,24 @@ public class LuaScriptPanel {
         upperPanel.add(burnButton);
         upperPanel.add(moreButton);
         upperPanel.add(command.getContent());
-        upperPanel.add(new URLLabel("Lua Wiki", "https://github.com/rusefi/rusefi/wiki/Lua-Scripting"));
+        upperPanel.add(new URLLabel("Lua Wiki", "https://wiki.rusefi.com/Lua-Scripting"));
 
         // Center panel - script editor and log
         JPanel scriptPanel = new JPanel(new BorderLayout());
 
         scriptText = new LuaTextEditor(context);
-        scriptPanel.add(scriptText.getControl(), BorderLayout.CENTER);
+        JComponent editorComponent = scriptText.getControl();
+        // enforce monospaced font for editor
+        editorComponent.setFont(new Font(Font.MONOSPACED, Font.PLAIN, editorComponent.getFont().getSize()));
+        scriptPanel.add(editorComponent, BorderLayout.CENTER);
 
         //centerPanel.add(, BorderLayout.WEST);
         JPanel messagesPanel = new JPanel(new BorderLayout());
         messagesPanel.add(BorderLayout.NORTH, mp.getButtonPanel());
+        // enforce monospaced font for log view
+        Font current = mp.getFont();
+        Font mono = new Font(Font.MONOSPACED, Font.PLAIN, current.getSize());
+        mp.setFont(mono, config);
         messagesPanel.add(BorderLayout.CENTER, mp.getMessagesScroll());
 
         ConnectionStatusLogic.INSTANCE.addListener(isConnected -> {
@@ -136,19 +142,20 @@ public class LuaScriptPanel {
                     try {
                         readFromECU();
                     } catch (Throwable e) {
-                        System.out.println(e);
+                        log.error("Unexpected" + e, e);
                     }
                 }
             });
         });
 
         JSplitPane centerPanel = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, scriptPanel, messagesPanel);
+        centerPanel.setResizeWeight(0.5);
+        centerPanel.setDividerLocation(0.5);
 
         mainPanel.add(upperPanel, BorderLayout.NORTH);
         mainPanel.add(centerPanel, BorderLayout.CENTER);
 
-        AutoupdateUtil.trueLayout(mainPanel);
-        SwingUtilities.invokeLater(() -> centerPanel.setDividerLocation(centerPanel.getSize().width / 2));
+        AutoupdateUtil.trueLayoutAndRepaint(mainPanel);
     }
 
     private String getScriptFullFileName() {
@@ -183,7 +190,7 @@ public class LuaScriptPanel {
                 }
             });
 
-            BinaryProtocol bp = context.getLinkManager().getCurrentStreamState();
+            BinaryProtocol bp = context.getBinaryProtocol();
             StringIniField luaScript = getLuaScriptField(bp);
 
             if (newLua.length() >= luaScript.getSize()) {
@@ -245,7 +252,7 @@ public class LuaScriptPanel {
     }
 
     void readFromECU() {
-        BinaryProtocol bp = context.getLinkManager().getCurrentStreamState();
+        BinaryProtocol bp = context.getBinaryProtocol();
 
         if (bp == null) {
             setText("No ECU located");
@@ -270,7 +277,9 @@ public class LuaScriptPanel {
     static StringIniField getLuaScriptField(BinaryProtocol bp) {
         Objects.requireNonNull(bp, "BinaryProtocol");
         // todo: do we have "luaScript" as code-generated constant anywhere?
-        IniFileModel iniFile = bp.getIniFile();
+        IniFileModel iniFile = bp.getIniFileNullable();
+        if (iniFile == null)
+            return null;
         Objects.requireNonNull(iniFile, "iniFile");
         return (StringIniField) iniFile.getIniField("LUASCRIPT");
     }
@@ -288,28 +297,14 @@ public class LuaScriptPanel {
         LinkManager linkManager = context.getLinkManager();
 
         linkManager.submit(() -> {
-            BinaryProtocol bp = linkManager.getCurrentStreamState();
+            BinaryProtocol bp = linkManager.getBinaryProtocol();
 
             StringIniField field = getLuaScriptField(bp);
 
             byte[] paddedScript = getScriptBytes(field, script);
 
-            int idx = 0;
-            int remaining;
-
-            int blockingFactor = bp.getIniFile().getBlockingFactor();
-
             log.info("Sending " + field);
-            do {
-                remaining = paddedScript.length - idx;
-                int thisWrite = Math.min(remaining, blockingFactor);
-
-                bp.writeData(paddedScript, idx, field.getOffset() + idx, thisWrite);
-
-                idx += thisWrite;
-
-                remaining -= thisWrite;
-            } while (remaining > 0);
+            bp.writeInBlocks(paddedScript, 0, field.getOffset(), paddedScript.length);
 
 // need a way to modify script on the fly with shorter execution gaps to keep E65 CAN network happy
 // todo: auto-burn on console close check box in case of Lua changes?

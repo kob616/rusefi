@@ -13,6 +13,7 @@
 #include "pch.h"
 #include "defaults.h"
 #include "hellen_meta.h"
+#include "board_overrides.h"
 
 static void setInjectorPins() {
 	engineConfiguration->injectionPins[0] = Gpio::H144_LS_1;
@@ -47,11 +48,11 @@ static void setupDefaultSensorInputs() {
 	engineConfiguration->iat.adcChannel = H144_IN_IAT;
 }
 
-
-
+#ifndef EFI_BOOTLOADER
 static bool isFirstInvocation = true;
+#endif // EFI_BOOTLOADER
 
-/*PUBLIC_API_WEAK*/ int hackHellenBoardId(int detectedId) {
+static int hyundaiHellenBoardId(int detectedId) {
   if (detectedId == BOARD_ID_VAG121_D) {
     // wow something bad has happened to that batch of boards?!
     return BOARD_ID_154HYUNDAI_C;
@@ -59,7 +60,7 @@ static bool isFirstInvocation = true;
   return detectedId;
 }
 
-void setBoardConfigOverrides() {
+static void hellen154_hyundai_boardConfigOverrides() {
 	setHellenVbatt();
 
 	setHellenSdCardSpi2();
@@ -131,11 +132,11 @@ void setBoardConfigOverrides() {
 /**
  * @brief   Board-specific configuration defaults.
  *
- * See also setDefaultEngineConfiguration
+
  *
 
  */
-void setBoardDefaultConfiguration() {
+static void hellen154_hyundai_boardDefaultConfiguration() {
 	setInjectorPins();
 	setIgnitionPins();
 
@@ -194,4 +195,10 @@ int getBoardMetaDcOutputsCount() {
 
 Gpio* getBoardMetaOutputs() {
     return OUTPUTS;
+}
+
+void setup_custom_board_overrides() {
+	custom_board_DefaultConfiguration = hellen154_hyundai_boardDefaultConfiguration;
+	custom_board_ConfigOverrides = hellen154_hyundai_boardConfigOverrides;
+	custom_board_hackHellenBoardId = hyundaiHellenBoardId;
 }

@@ -6,7 +6,7 @@
 
 #if defined(TS_PRIMARY_UxART_PORT) || defined(TS_SECONDARY_UxART_PORT)
 #if HAL_USE_SERIAL
-void SerialTsChannel::start(uint32_t baud) {
+void SerialTsChannel::start([[maybe_unused]] uint32_t baud) {
 	SerialConfig cfg = {
 		#if EFI_PROD_CODE
 			.speed = baud,
@@ -39,14 +39,14 @@ size_t SerialTsChannel::readTimeout(uint8_t* buffer, size_t size, int timeout) {
 #if HAL_USE_UART
 
 void UartTsChannel::start(uint32_t baud) {
-	m_config = { 
+	m_config = {
 		.txend1_cb 		= NULL,
 		.txend2_cb 		= NULL,
 		.rxend_cb 		= NULL,
 		.rxchar_cb		= NULL,
 		.rxerr_cb		= NULL,
 		.timeout_cb		= NULL,
-#if defined(STM32F7XX)
+#if defined(STM32F7XX) || defined(STM32H7XX)
 		.timeout        = 0,
 #endif
 		.speed 			= baud,

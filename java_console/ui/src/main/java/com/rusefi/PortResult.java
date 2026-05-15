@@ -1,5 +1,6 @@
 package com.rusefi;
 
+import com.opensr5.ConfigurationImageGetterSetter;
 import com.opensr5.ConfigurationImageMeta;
 import com.opensr5.ini.field.IniField;
 import com.rusefi.core.RusEfiSignature;
@@ -13,8 +14,8 @@ public class PortResult {
 
     public final String port;
     public final SerialPortType type;
-    public final CalibrationsInfo calibrations;
-    public final RusEfiSignature signature;
+    private final CalibrationsInfo calibrations;
+    private final RusEfiSignature signature;
 
     public PortResult(final String port, final SerialPortType type, final CalibrationsInfo calibrations) {
         this.port = port;
@@ -76,6 +77,10 @@ public class PortResult {
 
     public Optional<String> getFirmwareHash() {
         final Optional<IniField> hash3IniField = calibrations.getIniFile().findIniField(HASH3_FIELD_NAME);
-        return hash3IniField.map(field -> field.getValue(calibrations.getImage().getConfigurationImage()));
+        return hash3IniField.map(field -> ConfigurationImageGetterSetter.getStringValue(field, calibrations.getImage().getConfigurationImage()));
+    }
+
+    public CalibrationsInfo getCalibrations() {
+        return calibrations;
     }
 }

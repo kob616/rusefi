@@ -65,7 +65,7 @@ static void alphax_2chan_boardInitHardware() {
 	alphaCamPullDown.initPin("a-cam", Gpio::H144_OUT_IO8);
 }
 
-void boardOnConfigurationChange(engine_configuration_s * /*previousConfiguration*/) {
+static void customBoardOnConfigurationChange(engine_configuration_s * /*previousConfiguration*/) {
 	alphaTachPullUp.setValue(config->boardUseTachPullUp);
 	alphaTempPullUp.setValue(config->boardUseTempPullUp);
 	alphaCrankPPullUp.setValue(config->boardUseCrankPullUp);
@@ -73,8 +73,6 @@ void boardOnConfigurationChange(engine_configuration_s * /*previousConfiguration
 	alpha2stepPullDown.setValue(config->boardUse2stepPullDown);
 	alphaCamPullDown.setValue(config->boardUseCamPullDown);
 }
-
-
 
 static bool isMegaModuleRevision() {
 #ifndef EFI_BOOTLOADER
@@ -85,7 +83,7 @@ static bool isMegaModuleRevision() {
 #endif // EFI_BOOTLOADER
 }
 
-void setBoardConfigOverrides() {
+static void alphax_2chan_ConfigOverrides() {
 	setHellenVbatt();
 #ifndef EFI_BOOTLOADER
     int16_t hellenBoardId = engine->engineState.hellenBoardId;
@@ -121,10 +119,10 @@ void setBoardConfigOverrides() {
 /**
  * @brief   Board-specific configuration defaults.
  *
- * See also setDefaultEngineConfiguration
+
  *
  */
-void setBoardDefaultConfiguration() {
+static void  alphax_2chan_defaultConfiguration() {
 	setInjectorPins();
 	setIgnitionPins();
 
@@ -175,4 +173,8 @@ Gpio* getBoardMetaOutputs() {
 
 void setup_custom_board_overrides() {
 	custom_board_InitHardware = alphax_2chan_boardInitHardware;
+	custom_board_DefaultConfiguration = alphax_2chan_defaultConfiguration;
+	custom_board_ConfigOverrides = alphax_2chan_ConfigOverrides;
+
+	custom_board_OnConfigurationChange = customBoardOnConfigurationChange;
 }

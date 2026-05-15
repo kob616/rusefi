@@ -33,7 +33,7 @@ extern const CANConfig *findCanConfig(can_baudrate_e rate);
 // It's impossible to set CAN bitrate from userspace, so we can't set it.
 static const CANConfig canConfig_dummy;
 
-static const CANConfig * findCanConfig(can_baudrate_e rate)
+static const CANConfig * findCanConfig(can_baudrate_e /*rate*/)
 {
 	return &canConfig_dummy;
 }
@@ -48,20 +48,25 @@ public:
 	{
 	}
 
-	void start(CANDriver* device) {
+	void setDevice(CANDriver* device) {
 		m_device = device;
+	}
 
-		if (device) {
+	void start(void) {
+		if (m_device) {
 			ThreadController::start();
 		}
 	}
 
+	using ThreadController::stop;
+
 	void ThreadTask() override {
-		while (true) {
+		while (!chThdShouldTerminateX()) {
 			// Block until we get a message
-			msg_t result = canReceiveTimeout(m_device, CAN_ANY_MAILBOX, &m_buffer, TIME_INFINITE);
+			msg_t result = canReceiveTimeout(m_device, CAN_ANY_MAILBOX, &m_buffer, CAN_RX_TIMEOUT);
 
 			if (result != MSG_OK) {
+				canHwRecover(m_index, m_device);
 				continue;
 			}
 
@@ -70,6 +75,8 @@ public:
 
 			processCanRxMessage(m_index, m_buffer, getTimeNowNt());
 		}
+
+		chThdExit((msg_t)0x0);
 	}
 
 private:
@@ -78,9 +85,62 @@ private:
 	CANDriver* m_device;
 };
 
-CCM_OPTIONAL static CanRead canRead1(0);
-CCM_OPTIONAL static CanRead canRead2(1);
+CCM_OPTIONAL static CanRead canRead[EFI_CAN_BUS_COUNT] = { CanRead(0), CanRead(1)
+#if (EFI_CAN_BUS_COUNT >= 3)
+	, CanRead(2)
+#endif
+	};
 static CanWrite canWrite CCM_OPTIONAL;
+
+#if EFI_PROD_CODE
+static CANDriver* getCanDevice(size_t index)
+{
+	switch (index) {
+	case 0:
+		return detectCanDevice(engineConfiguration->canRxPin, engineConfiguration->canTxPin);
+	case 1:
+		return detectCanDevice(engineConfiguration->can2RxPin, engineConfiguration->can2TxPin);
+#if (EFI_CAN_BUS_COUNT >= 3)
+	case 2:
+		return detectCanDevice(engineConfiguration->can3RxPin, engineConfiguration->can3TxPin);
+#endif
+	}
+
+	return nullptr;
+}
+#endif // EFI_PROD_CODE
+
+static can_baudrate_e getDefaultCanBaudRate(size_t index) {
+	switch (index) {
+	case 0:
+		return engineConfiguration->canBaudRate;
+	case 1:
+		return engineConfiguration->can2BaudRate;
+#if (EFI_CAN_BUS_COUNT >= 3)
+	case 2:
+		return engineConfiguration->can3BaudRate;
+#endif
+	}
+
+	return engineConfiguration->canBaudRate;
+}
+
+static bool getCanListenOnly(size_t index) {
+	switch (index) {
+	case 0:
+		return engineConfiguration->can1ListenMode;
+	case 1:
+		return engineConfiguration->can2ListenMode;
+#if (EFI_CAN_BUS_COUNT >= 3)
+	case 2:
+		return engineConfiguration->can3ListenMode;
+#endif
+	}
+
+	return engineConfiguration->can1ListenMode;
+}
+
+int txErrorCount[EFI_CAN_BUS_COUNT] = {};
 
 static void canInfo() {
 	if (!isCanEnabled) {
@@ -88,13 +148,19 @@ static void canInfo() {
 		return;
 	}
 
-	efiPrintf("CAN1 TX %s %s", hwPortname(engineConfiguration->canTxPin), getCan_baudrate_e(engineConfiguration->canBaudRate));
+	efiPrintf("CAN1 TX %s %s err=%d", hwPortname(engineConfiguration->canTxPin), getCan_baudrate_e(engineConfiguration->canBaudRate), txErrorCount[0]);
 	efiPrintf("CAN1 RX %s", hwPortname(engineConfiguration->canRxPin));
-	canHwInfo(detectCanDevice(engineConfiguration->canRxPin, engineConfiguration->canTxPin));
+	canHwInfo(getCanDevice(0));
 
-	efiPrintf("CAN2 TX %s %s", hwPortname(engineConfiguration->can2TxPin), getCan_baudrate_e(engineConfiguration->can2BaudRate));
+	efiPrintf("CAN2 TX %s %s err=%d", hwPortname(engineConfiguration->can2TxPin), getCan_baudrate_e(engineConfiguration->can2BaudRate), txErrorCount[1]);
 	efiPrintf("CAN2 RX %s", hwPortname(engineConfiguration->can2RxPin));
-	canHwInfo(detectCanDevice(engineConfiguration->can2RxPin, engineConfiguration->can2TxPin));
+	canHwInfo(getCanDevice(1));
+
+#if (EFI_CAN_BUS_COUNT >= 3)
+	efiPrintf("CAN3 TX %s %s err=%d", hwPortname(engineConfiguration->can3TxPin), getCan_baudrate_e(engineConfiguration->can3BaudRate), txErrorCount[2]);
+	efiPrintf("CAN3 RX %s", hwPortname(engineConfiguration->can3RxPin));
+	canHwInfo(getCanDevice(2));
+#endif
 
 	efiPrintf("type=%d canReadEnabled=%s canWriteEnabled=%s period=%d", engineConfiguration->canNbcType,
 			boolToString(engineConfiguration->canReadEnabled), boolToString(engineConfiguration->canWriteEnabled),
@@ -116,6 +182,10 @@ void stopCanPins() {
 	efiSetPadUnusedIfConfigurationChanged(canRxPin);
 	efiSetPadUnusedIfConfigurationChanged(can2TxPin);
 	efiSetPadUnusedIfConfigurationChanged(can2RxPin);
+#if (EFI_CAN_BUS_COUNT >= 3)
+	efiSetPadUnusedIfConfigurationChanged(can3TxPin);
+	efiSetPadUnusedIfConfigurationChanged(can3RxPin);
+#endif
 }
 
 // at the moment we support only very limited runtime configuration change, still not supporting online CAN toggle
@@ -150,16 +220,29 @@ void startCanPins() {
 
 	efiSetPadModeIfConfigurationChanged("CAN2 TX", can2TxPin, PAL_MODE_ALTERNATE(EFI_CAN_TX_AF));
 	efiSetPadModeIfConfigurationChanged("CAN2 RX", can2RxPin, PAL_MODE_ALTERNATE(EFI_CAN_RX_AF));
+
+#if (EFI_CAN_BUS_COUNT >= 3)
+	efiSetPadModeIfConfigurationChanged("CAN3 TX", can3TxPin, PAL_MODE_ALTERNATE(EFI_CAN3_TX_AF));
+	efiSetPadModeIfConfigurationChanged("CAN3 RX", can3RxPin, PAL_MODE_ALTERNATE(EFI_CAN3_RX_AF));
+#endif // EFI_CAN_BUS_COUNT >= 3
 #endif // EFI_PROD_CODE
 }
 
+// Move to port CAN helpers file
 static void applyListenOnly(CANConfig* canConfig, bool isListenOnly) {
 #if defined(STM32F4XX) || defined(STM32F7XX)
-    if (isListenOnly)
-    	canConfig->btr += CAN_BTR_SILM;
+	if (isListenOnly) {
+		canConfig->btr |= CAN_BTR_SILM;
+	}
+#elif defined(STM32H7XX)
+	// TODO: move to ChibiOS stm32_fdcan.h
+	#define FDCAN_CONFIG_CCCR_MON	(1u << 5)
+	if (isListenOnly) {
+		canConfig->CCCR |= FDCAN_CONFIG_CCCR_MON;
+	}
 #else
-    if (isListenOnly)
-        criticalError("CAN:ListenOnly not implemented yet");
+  UNUSED(canConfig);
+  UNUSED(isListenOnly);
 #endif
 }
 
@@ -174,38 +257,41 @@ void initCan() {
 	}
 
 	// Determine physical CAN peripherals based on selected pins
-	auto device1 = detectCanDevice(engineConfiguration->canRxPin, engineConfiguration->canTxPin);
-	auto device2 = detectCanDevice(engineConfiguration->can2RxPin, engineConfiguration->can2TxPin);
+	CANDriver *device[EFI_CAN_BUS_COUNT];
+	bool anyCan = false;
+	for (size_t index = 0; index < EFI_CAN_BUS_COUNT; index++) {
+		device[index] = getCanDevice(index);
 
-	// If both devices are null, a firmware error was already thrown by detectCanDevice, but we shouldn't continue
-	if (!device1 && !device2) {
-		return;
+		// Check for same devie select
+		for (size_t j = 0; j < index; j++) {
+			if ((device[index] != nullptr) && (device[index] == device[j])) {
+				criticalError("CAN%d and CAN%d pins must be set to different devices", index + 1, j + 1);
+				return;
+			}
+		}
+		anyCan |= (device[index] != nullptr);
 	}
 
-	// Devices can't be the same!
-	if (device1 == device2) {
-		criticalError("CAN pins must be set to different devices");
+	// If all devices are null, a firmware error was already thrown by detectCanDevice, but we shouldn't continue
+	if (!anyCan) {
 		return;
 	}
 
 	// Initialize peripherals
-	if (device1) {
-	    // Config based on baud rate
-	    CANConfig canConfig;
-	    memcpy(&canConfig, findCanConfig(engineConfiguration->canBaudRate), sizeof(canConfig));
-	    applyListenOnly(&canConfig, engineConfiguration->can1ListenMode);
-		canStart(device1, &canConfig);
-	}
+	for (size_t index = 0; index < EFI_CAN_BUS_COUNT; index++) {
+		if (device[index]) {
+			// Config based on baud rate
+			// Pointer to this local canConfig is stored inside CANDriver
+			// even it is used only during canStart this is wierd
+			CANConfig canConfig;
+			memcpy(&canConfig, findCanConfig(getDefaultCanBaudRate(index)), sizeof(canConfig));
+			applyListenOnly(&canConfig, getCanListenOnly(index));
+			canStart(device[index], &canConfig);
 
-	if (device2) {
-	    CANConfig canConfig;
-	    memcpy(&canConfig, findCanConfig(engineConfiguration->can2BaudRate), sizeof(canConfig));
-	    applyListenOnly(&canConfig, engineConfiguration->can2ListenMode);
-		canStart(device2, &canConfig);
+			// Plumb CAN devices to tx system
+			CanTxMessage::setDevice(index, device[index]);
+		}
 	}
-
-	// Plumb CAN devices to tx system
-	CanTxMessage::setDevice(device1, device2);
 
 	// fire up threads, as necessary
 	if (engineConfiguration->canWriteEnabled) {
@@ -213,8 +299,10 @@ void initCan() {
 	}
 
 	if (engineConfiguration->canReadEnabled) {
-		canRead1.start(device1);
-		canRead2.start(device2);
+		for (size_t index = 0; index < EFI_CAN_BUS_COUNT; index++) {
+			canRead[index].setDevice(device[index]);
+			canRead[index].start();
+		}
 	}
 
 	isCanEnabled = true;
@@ -222,6 +310,82 @@ void initCan() {
 
 bool getIsCanEnabled(void) {
 	return isCanEnabled;
+}
+
+int setCanBaud(size_t index, can_baudrate_e rate) {
+	if (index >= EFI_CAN_BUS_COUNT)
+		return -1;
+
+	auto device = getCanDevice(index);
+	if (device == nullptr)
+		return -2;
+
+	// Stop listener
+	canRead[index].stop();
+
+	// Remove CAN device from tx system
+	CanTxMessage::removeDevice(index);
+
+	// Actually stop HW
+	canStop(device);
+
+	// Get config for new baudrate
+	CANConfig canConfig;
+	memcpy(&canConfig, findCanConfig(rate), sizeof(canConfig));
+	applyListenOnly(&canConfig, getCanListenOnly(index));
+
+	// Start HW
+	canStart(device, &canConfig);
+
+	// Plumb CAN devices to tx system
+	CanTxMessage::setDevice(index, device);
+
+	// Start listener
+	if (engineConfiguration->canReadEnabled) {
+		canRead[index].start();
+	}
+
+	return 0;
+}
+
+int setCanBaud(size_t index, int baudrate) {
+	can_baudrate_e rate;
+
+	switch (baudrate) {
+	case 33000:
+		rate = B33KBPS;
+		break;
+	case 50000:
+		rate = B50KBPS;
+		break;
+	case 83000:
+	case 83333:
+		rate = B83KBPS;
+		break;
+	case 100000:
+		rate = B100KBPS;
+		break;
+	case 125000:
+		rate = B125KBPS;
+		break;
+	case 250000:
+		rate = B250KBPS;
+		break;
+	case 666000:
+	case 666666:
+		rate = B666KBPS;
+		break;
+	case 1000000:
+		rate = B1MBPS;
+		break;
+	case 500000:
+		rate = B500KBPS;
+		break;
+	default:
+		return -3;
+	}
+
+	return setCanBaud(index, rate);
 }
 
 #endif /* EFI_CAN_SUPPORT */

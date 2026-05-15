@@ -167,7 +167,7 @@
  */
 #define EFI_TUNER_STUDIO_VERBOSE TRUE
 
-#define EFI_DEFAILED_LOGGING FALSE
+#define EFI_DETAILED_LOGGING FALSE
 
 /**
  * Dev console support.
@@ -196,6 +196,10 @@
 #define SPARK_EXTREME_LOGGING FALSE
 
 #define TRIGGER_EXTREME_LOGGING FALSE
+
+#ifndef ROTATIONAL_IDLE_CONTROLLER
+#define ROTATIONAL_IDLE_CONTROLLER TRUE
+#endif
 
 /**
  * Store configuration as raw binary to internal flash (two copies if there is enough flash)
@@ -495,7 +499,7 @@
  */
 
 #ifndef EFI_USE_UART_DMA
-#define EFI_USE_UART_DMA TRUE
+#define EFI_USE_UART_DMA FALSE
 #endif
 
 #ifndef AUX_SERIAL_DEVICE

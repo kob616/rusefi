@@ -12,8 +12,6 @@
 #include "electronic_throttle.h"
 #include "gppwm_channel_reader.h"
 
-#define NO_PIN_PERIOD 500
-
 #if defined(HAS_OS_ACCESS)
 #error "Unexpected OS ACCESS HERE"
 #endif
@@ -140,6 +138,7 @@ expected<percent_t> BoostController::getOpenLoop(float target) {
     efiAssert(ObdCode::OBD_PCM_Processor_Fault, m_iatBoostCorrMap != nullptr, "boost IAT multiplier", unexpected);
 
 	percent_t openLoop = luaOpenLoopAdd + getBoostControlDutyCycleWithTemperatureCorrections(rpm, driverIntent.Value);
+	openLoopYAxis = driverIntent.Value;
 
 #if EFI_ENGINE_CONTROL
 	// Add any blends if configured

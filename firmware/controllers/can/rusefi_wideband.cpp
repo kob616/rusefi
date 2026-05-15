@@ -26,6 +26,7 @@ size_t getWidebandBus() {
 #define EVT_BOOTLOADER_ACK EVENT_MASK(0)
 
 static thread_t* waitingBootloaderThread = nullptr;
+static char widebandRestart = 0;
 
 void handleWidebandCan(const size_t busIndex, const CANRxFrame& frame) {
 	// wrong bus
@@ -76,9 +77,20 @@ static void setStatus(can_wbo_re_status_e status)
 #endif
 }
 
-void setWidebandOffset(uint8_t hwIndex, uint8_t index) {
+void setWidebandOffsetNoWait(uint8_t hwIndex, uint8_t index) {
 	size_t bus = getWidebandBus();
 
+	if (hwIndex == 0xff) {
+		CanTxMessage m(CanCategory::WBO_SERVICE, WB_MSG_SET_INDEX, 1, bus, true);
+		m[0] = index;
+	} else {
+		CanTxMessage m(CanCategory::WBO_SERVICE, WB_MSG_SET_INDEX, 2, bus, true);
+		m[0] = index;
+		m[1] = hwIndex;
+	}
+}
+
+void setWidebandOffset(uint8_t hwIndex, uint8_t index) {
 	setStatus(WBO_RE_BUSY);
 
 	// Clear any pending acks for this thread
@@ -93,17 +105,42 @@ void setWidebandOffset(uint8_t hwIndex, uint8_t index) {
 
 	if (hwIndex == 0xff) {
 		efiPrintf("Setting all connected widebands to index %d...", index);
-		CanTxMessage m(CanCategory::WBO_SERVICE, WB_MSG_SET_INDEX, 1, bus, true);
-		m[0] = index;
 	} else {
 		efiPrintf("Setting wideband with hwIndex %d to CAN index %d...", hwIndex, index);
-		CanTxMessage m(CanCategory::WBO_SERVICE, WB_MSG_SET_INDEX, 2, bus, true);
-		m[0] = index;
-		m[1] = hwIndex;
 	}
+	setWidebandOffsetNoWait(hwIndex, index);
 
 	if (!waitAck()) {
 		efiPrintf("Wideband index set failed: no controller detected!");
+		setStatus(WBO_RE_FAILED);
+	} else {
+		setStatus(WBO_RE_DONE);
+	}
+
+	waitingBootloaderThread = nullptr;
+}
+
+void setWidebandSensorType(uint8_t hwIndex, uint8_t type) {
+	size_t bus = getWidebandBus();
+
+	setStatus(WBO_RE_BUSY);
+
+	// Clear any pending acks for this thread
+	chEvtGetAndClearEvents(EVT_BOOTLOADER_ACK);
+
+	// Send messages to the current thread when acks come in
+	waitingBootloaderThread = chThdGetSelfX();
+
+	{
+		// Note position of hwIndex, compared to WB_MSG_SET_INDEX
+		// TODO: replace madic number after updating WBO submodule
+		CanTxMessage m(CanCategory::WBO_SERVICE, 0xEF7'0000 /* WB_MSG_SET_SENS_TYPE */, 2, bus, true);
+		m[0] = hwIndex;
+		m[1] = type;
+	}
+
+	if (!waitAck()) {
+		efiPrintf("Wideband sensor type set failed: no controller detected!");
 		setStatus(WBO_RE_FAILED);
 	} else {
 		setStatus(WBO_RE_DONE);
@@ -148,26 +185,48 @@ void pingWideband(uint8_t hwIndex) {
 	waitingBootloaderThread = nullptr;
 }
 
+void restartWideband() {
+	// 10 times of 50 mS
+	widebandRestart = 10;
+}
+
+// Called with 50mS interval and only if CAN and (on-boards) WBO(s) are enabled
 void sendWidebandInfo() {
-	CanTxMessage m(CanCategory::WBO_SERVICE, WB_MGS_ECU_STATUS, /*dlc*/2, getWidebandBus(), /*isExtended*/true);
+	static int counter = 0;
+
+	CanTxMessage m(CanCategory::WBO_SERVICE, WB_MSG_ECU_STATUS, /*dlc*/2, getWidebandBus(), /*isExtended*/true);
 
 	float vbatt = Sensor::getOrZero(SensorType::BatteryVoltage) * 10;
 
 	m[0] = vbatt;
 
 	// Offset 1 bit 0 = heater enable
-	m[1] = engine->engineState.heaterControlEnabled ? 0x01 : 0x00;
+	if (widebandRestart) {
+		m[1] = 0x00;
+		widebandRestart--;
+	} else {
+		m[1] = engine->engineState.heaterControlEnabled ? 0x01 : 0x00;
+	}
+
+	// 10 * 50 = 0.5S delay
+	if (counter == 10) {
+		for (size_t i = 0; i < CAN_WBO_COUNT; i++) {
+			if ((engineConfiguration->canWbo[i].enableRemap) &&
+				(engineConfiguration->canWbo[i].type == RUSEFI)) {
+				// remap
+				setWidebandOffsetNoWait(engineConfiguration->canWbo[i].reHwidx, engineConfiguration->canWbo[i].reId);
+			}
+		}
+	}
+
+	counter++;
 }
 
 #if EFI_WIDEBAND_FIRMWARE_UPDATE
 
-// This file contains an array called build_wideband_noboot_bin
-// This array contains the firmware image for the wideband contoller
-#include "wideband_firmware/for_rusefi/wideband_image.h"
-
-void updateWidebandFirmware(uint8_t hwIndex) {
-	size_t bus = getWidebandBus();
-	size_t totalSize = sizeof(build_wideband_image_bin);
+// reboots to bootloader and erases FW area
+static int updateWidebandFirmwarePrepare(size_t bus, uint8_t hwIndex) {
+	int ret = -1;
 
 	setStatus(WBO_RE_BUSY);
 
@@ -228,6 +287,127 @@ void updateWidebandFirmware(uint8_t hwIndex) {
 		goto exit;
 	}
 
+	ret = 0;
+
+exit:
+	return ret;
+}
+
+
+// reboots to bootloader and erases FW area
+static int updateWidebandFirmwareFinalize(size_t bus, uint8_t /* hwIndex */) {
+	efiPrintf("Wideband Update: Update complete! Rebooting controller.");
+
+	{
+		// Reboot to firmware!
+		CanTxMessage m(CanCategory::WBO_SERVICE, WB_BL_REBOOT, 0, bus, true);
+	}
+
+	if (!waitAck()) {
+		efiPrintf("Wideband Update ERROR: No ack on reboot command");
+		waitingBootloaderThread = nullptr;
+		return -1;
+	}
+
+	return 0;
+}
+
+#if EFI_PROD_CODE
+
+#if EFI_FILE_LOGGING
+#include "ff.h"
+#endif
+
+// Yes, this file also contains bootloader, but this is how it was historicaly released in 2023
+static const char wboFileName[] = "fw/wbo/wideband_image_with_bl.bin";
+// FW goes after 6K bootloader
+static const size_t wboFwOffset = 6 * 1024;
+static const size_t wboFwMaxSize = 32 * 1024;
+
+void updateWidebandFirmwareFromFile(uint8_t hwIndex)
+{
+#if EFI_FILE_LOGGING
+	int ret = 0;
+	size_t totalSize = 0;
+	size_t bus = 0;
+	FIL fil;
+
+	if (f_open(&fil, wboFileName, FA_READ) != FR_OK) {
+		efiPrintf("Wideband Update: filed to open %s", wboFileName);
+		return;
+	}
+
+	if (f_lseek(&fil, wboFwOffset) != FR_OK) {
+		efiPrintf("Wideband Update: filed to seek");
+		goto exit;
+	}
+
+	totalSize = f_size(&fil) - wboFwOffset;
+	bus = getWidebandBus();
+
+	// this also sets waitingBootloaderThread
+	ret = updateWidebandFirmwarePrepare(bus, hwIndex);
+	if (ret < 0) {
+		goto exit;
+	}
+
+	for (size_t i = 0; i < totalSize; i += 8) {
+		UINT br;
+		uint8_t tmp[8];
+
+		if (f_read(&fil, tmp, sizeof(tmp), &br) != FR_OK) {
+			efiPrintf("Wideband Update: filed to read");
+			setStatus(WBO_RE_FAILED);
+			goto exit;
+		}
+
+		if (br == 0) {
+			// EOF
+			break;
+		}
+
+		{
+			CanTxMessage m(CanCategory::WBO_SERVICE, WB_BL_DATA_BASE | i, 8, bus, true);
+			memcpy(&m[0], tmp, 8);
+		}
+
+		if (!waitAck()) {
+			efiPrintf("Wideband Update ERROR: Expected ACK from data write, didn't get one.");
+			setStatus(WBO_RE_FAILED);
+			goto exit;
+		}
+	}
+
+	ret = updateWidebandFirmwareFinalize(bus, hwIndex);
+	if (ret) {
+		goto exit;
+	}
+
+	setStatus(WBO_RE_DONE);
+
+exit:
+	waitingBootloaderThread = nullptr;
+	f_close(&fil);
+#else
+	// Not supported
+#endif
+}
+#endif
+
+// This file contains an array called build_wideband_noboot_bin
+// This array contains the firmware image for the wideband contoller
+#include "wideband_firmware/for_rusefi/wideband_image.h"
+
+void updateWidebandFirmware(uint8_t hwIndex) {
+	size_t bus = getWidebandBus();
+	size_t totalSize = sizeof(build_wideband_image_bin);
+
+	// this also sets waitingBootloaderThread
+	int ret = updateWidebandFirmwarePrepare(bus, hwIndex);
+	if (ret < 0) {
+		goto exit;
+	}
+
 	efiPrintf("Wideband Update: Flash erased! Sending %d bytes...", totalSize);
 
 	// Send flash data 8 bytes at a time
@@ -244,15 +424,10 @@ void updateWidebandFirmware(uint8_t hwIndex) {
 		}
 	}
 
-	efiPrintf("Wideband Update: Update complete! Rebooting controller.");
-
-	{
-		// Reboot to firmware!
-		CanTxMessage m(CanCategory::WBO_SERVICE, WB_BL_REBOOT, 0, bus, true);
+	ret = updateWidebandFirmwareFinalize(bus, hwIndex);
+	if (ret) {
+		goto exit;
 	}
-
-	// TODO:
-	waitAck();
 
 	setStatus(WBO_RE_DONE);
 

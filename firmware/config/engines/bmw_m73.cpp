@@ -1,10 +1,10 @@
 /*
  * @file bmw_m73.cpp
  *
- * https://github.com/rusefi/rusefi/wiki/BMW_e38_750
+ * https://wiki.rusefi.com/BMW_e38_750
  *
  * https://rusefi.com/wiki/index.php?title=Hardware:OEM_connectors#134_pin
- * https://github.com/rusefi/rusefi/wiki/HOWTO_electronic_throttle_body
+ * https://wiki.rusefi.com/HOWTO_electronic_throttle_body
  * Ignition module https://rusefi.com/forum/viewtopic.php?f=4&t=286
  *
  *
@@ -94,7 +94,7 @@ void m73engine() {
 	strcpy(engineConfiguration->engineMake, ENGINE_MAKE_BMW);
 	strcpy(engineConfiguration->engineCode, "M73");
 	engineConfiguration->firingOrder = FO_1_7_5_11_3_9_6_12_2_8_4_10;
-	engineConfiguration->fuelAlgorithm = LM_ALPHA_N;
+	engineConfiguration->fuelAlgorithm = engine_load_mode_e::LM_ALPHA_N;
 	engineConfiguration->canNbcType = CAN_BUS_NBC_NONE;
 
 	engineConfiguration->vvtMode[0] = VVT_SINGLE_TOOTH;
@@ -176,9 +176,9 @@ void setEngineBMW_M73_Proteus() {
 
 	engineConfiguration->camInputs[0] = PROTEUS_DIGITAL_2;
 
-	// no idea why https://github.com/rusefi/rusefi/wiki/HOWTO-M73-v12-on-Proteus uses non default CLT pin
+	// no idea why https://wiki.rusefi.com/HOWTO-M73-v12-on-Proteus uses non default CLT pin
 //	engineConfiguration->clt.adcChannel = PROTEUS_IN_ANALOG_TEMP_4;
-  // newer https://github.com/rusefi/rusefi/wiki/HOWTO-custom-harness-lazyharnezz-M73 uses default pin
+  // newer https://wiki.rusefi.com/HOWTO-custom-harness-lazyharnezz-M73 uses default pin
 
 
 	engineConfiguration->starterControlPin = Gpio::PROTEUS_LS_14;

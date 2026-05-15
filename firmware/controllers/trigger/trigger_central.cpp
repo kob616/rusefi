@@ -97,6 +97,8 @@ int getCrankDivider(operation_mode_e operationMode) {
 		return SYMMETRICAL_CRANK_SENSOR_DIVIDER;
 	case FOUR_STROKE_THREE_TIMES_CRANK_SENSOR:
 		return SYMMETRICAL_THREE_TIMES_CRANK_SENSOR_DIVIDER;
+	case FOUR_STROKE_FIVE_TIMES_CRANK_SENSOR:
+		return SYMMETRICAL_FIVE_TIMES_CRANK_SENSOR_DIVIDER;
 	case FOUR_STROKE_SIX_TIMES_CRANK_SENSOR:
 		return SYMMETRICAL_SIX_TIMES_CRANK_SENSOR_DIVIDER;
 	case FOUR_STROKE_TWELVE_TIMES_CRANK_SENSOR:
@@ -117,10 +119,12 @@ int getCrankDivider(operation_mode_e operationMode) {
 }
 
 PUBLIC_API_WEAK bool boardIsSpecialVvtDecoder(vvt_mode_e vvtMode) {
-  return false;
+	UNUSED(vvtMode);
+
+	return false;
 }
 
-PUBLIC_API_WEAK void boardTriggerCallback(efitick_t timestamp, float currentPhase) {}
+PUBLIC_API_WEAK void boardTriggerCallback(efitick_t timestamp, float currentPhase) { UNUSED(timestamp); UNUSED(currentPhase); }
 
 static bool vvtWithRealDecoder(vvt_mode_e vvtMode) {
 	return vvtMode != VVT_INACTIVE
@@ -144,6 +148,9 @@ angle_t TriggerCentral::syncEnginePhaseAndReport(int divider, int remainder) {
 }
 
 PUBLIC_API_WEAK angle_t customAdjustCustom(TriggerCentral *tc, vvt_mode_e vvtMode) {
+	UNUSED(tc);
+	UNUSED(vvtMode);
+
   return 0;
 }
 
@@ -170,11 +177,11 @@ static angle_t adjustCrankPhase(int camIndex) {
 	switch (vvtMode) {
 	case VVT_MAP_V_TWIN:
 	case VVT_MITSUBISHI_4G63:
-	case VVT_UNUSED_17:
 		return tc->syncEnginePhaseAndReport(crankDivider, 1);
 	case VVT_SINGLE_TOOTH:
 	case VVT_NISSAN_VQ:
 	case VVT_BOSCH_QUICK_START:
+	case VVT_BMW_N63TU:
 	case VVT_MIATA_NB:
 	case VVT_TOYOTA_3TOOTH_UZ:
 	case VVT_TOYOTA_3_TOOTH:
@@ -193,6 +200,7 @@ static angle_t adjustCrankPhase(int camIndex) {
 	case VVT_CHRYSLER_PHASER:
 	case VVT_HONDA_K_EXHAUST:
 	case VVT_HONDA_CBR_600:
+	case VVT_SUBARU_7TOOTH:
 		return tc->syncEnginePhaseAndReport(crankDivider, 0);
 	case VVT_CUSTOM_25:
 	case VVT_CUSTOM_26:
@@ -202,6 +210,8 @@ static angle_t adjustCrankPhase(int camIndex) {
 	    // with 4 evenly spaced tooth we cannot use this wheel for engine sync
         criticalError("Honda K Intake is not suitable for engine sync");
         [[fallthrough]];
+	case VVT_CUSTOM_1:
+	case VVT_CUSTOM_2:
 	case VVT_INACTIVE:
 		// do nothing
 		return 0;
@@ -230,6 +240,8 @@ static void logVvtFront(bool useOnlyRise, bool isImportantFront, TriggerValue fr
 
 #if EFI_TOOTH_LOGGER
 		LogTriggerCamTooth(front == TriggerValue::RISE, nowNt, index);
+#else
+  UNUSED(nowNt);
 #endif /* EFI_TOOTH_LOGGER */
 	} else {
 		if (isImportantFront) {
@@ -256,8 +268,20 @@ extern bool main_loop_started;
   return false;
 }
 
-void hwHandleVvtCamSignal(bool isRising, efitick_t timestamp, int index) {
-	hwHandleVvtCamSignal(isRising ? TriggerValue::RISE : TriggerValue::FALL, timestamp, index);
+/**
+ * This function is called by all "hardware" trigger inputs:
+ *  - Hardware triggers
+ *  - Trigger replay from CSV (unit tests)
+ */
+void hwHandleVvtCamSignal(bool isRising, efitick_t nowNt, int index) {
+	int camIndex = CAM_BY_INDEX(index);
+	bool invertSetting = camIndex == 0 ? engineConfiguration->invertCamVVTSignal : engineConfiguration->invertExhaustCamVVTSignal;
+
+	if (isRising ^ invertSetting) {
+		hwHandleVvtCamSignal(TriggerValue::RISE, nowNt, index);
+	} else {
+		hwHandleVvtCamSignal(TriggerValue::FALL, nowNt, index);
+	}
 }
 
 // 'invertCamVVTSignal' is already accounted by the time this method is invoked
@@ -277,6 +301,8 @@ void hwHandleVvtCamSignal(TriggerValue front, efitick_t nowNt, int index) {
  * @returns true if tooth should be ignored
  */
 PUBLIC_API_WEAK bool skipToothSpecialShape(size_t index, vvt_mode_e vvtMode, angle_t currentPosition) {
+	UNUSED(index);
+
 	switch(vvtMode) {
 	case VVT_TOYOTA_3_TOOTH:
 	{
@@ -624,6 +650,8 @@ bool TriggerNoiseFilter::noiseFilter(efitick_t nowNt,
 }
 
 bool TriggerCentral::isMapCamSync(efitick_t timestamp, float currentPhase) {
+	UNUSED(timestamp);
+
 		// we are trying to figure out which 360 half of the total 720 degree cycle is which, so we compare those in 360 degree sense.
 		auto toothAngle360 = currentPhase;
 		while (toothAngle360 >= 360) {
@@ -668,6 +696,8 @@ float mapAtAngle[200];
 #endif
 
 void TriggerCentral::decodeMapCam(int toothIndexForListeners, efitick_t timestamp, float currentPhase) {
+	UNUSED(toothIndexForListeners);
+
     isDecodingMapCam = engineConfiguration->vvtMode[0] == VVT_MAP_V_TWIN &&
                        			Sensor::getOrZero(SensorType::Rpm) < engineConfiguration->cranking.rpm;
 	if (isDecodingMapCam) {
@@ -713,6 +743,8 @@ bool TriggerCentral::isToothExpectedNow(efitick_t timestamp) {
 			angleError += cycle;
 		}
 
+		// positive value - tooth received earlier than expected
+		// negative value - tooth received later than expected
 		triggerToothAngleError = angleError;
 
 		// Only perform checks if engine is spinning quickly
@@ -742,7 +774,8 @@ bool TriggerCentral::isToothExpectedNow(efitick_t timestamp) {
 			// TODO: configurable threshold
 			if (isRpmEnough && absError > 10 && absError < 180) {
 				// This tooth came at a very unexpected time, ignore it
-				warning(ObdCode::CUSTOM_PRIMARY_BAD_TOOTH_TIMING, "tooth #%d error of %.1f", triggerState.currentCycle.current_index, angleError);
+				warning((angleError > 0) ? ObdCode::CUSTOM_PRIMARY_BAD_TOOTH_TIMING_EARLY : ObdCode::CUSTOM_PRIMARY_BAD_TOOTH_TIMING_LATE,
+					"tooth #%d error of %.1f", triggerState.currentCycle.current_index, angleError);
 
 				// TODO: this causes issues with some real engine logs, should it?
 				// return false;
@@ -770,8 +803,11 @@ angle_t TriggerCentral::findNextTriggerToothAngle(int p_currentToothIndex) {
 			nextToothAngle = getTriggerCentral()->triggerFormDetails.eventAngles[currentToothIndex] - tdcPosition();
 			wrapAngle(nextToothAngle, "nextEnginePhase", ObdCode::CUSTOM_ERR_6555);
 		} while (nextToothAngle == currentEngineDecodedPhase && --loopAllowance > 0); // '==' for float works here since both values come from 'eventAngles' array
-		if (nextToothAngle != 0 && loopAllowance == 0) {
+		if (loopAllowance == 0 && nextToothAngle != currentEngineDecodedPhase) {
 		  // HW CI fails here, looks like we sometimes change trigger while still handling it?
+		  // Note: for single-tooth triggers, all eventAngles map to the same engine phase,
+		  // so nextToothAngle == currentEngineDecodedPhase is expected and not an error.
+			// see #9045 for report of this problem
 			firmwareError(ObdCode::CUSTOM_ERR_TRIGGER_ZERO, "handleShaftSignal unexpected loop end %d %d %f %f", p_currentToothIndex, engineCycleEventCount, nextToothAngle, currentEngineDecodedPhase);
 		}
 		return nextToothAngle;
@@ -929,13 +965,6 @@ void triggerInfo(void) {
 	TriggerCentral *tc = getTriggerCentral();
 	TriggerWaveform *ts = &tc->triggerShape;
 
-
-#if (HAL_TRIGGER_USE_PAL == TRUE) && (PAL_USE_CALLBACKS == TRUE)
-		efiPrintf("trigger PAL mode %d", tc->hwTriggerInputEnabled);
-#else
-
-#endif /* HAL_TRIGGER_USE_PAL */
-
 	efiPrintf("Template %s (%d) trigger %s (%d) syncEdge=%s tdcOffset=%.2f",
 			getEngine_type_e(engineConfiguration->engineType),
 			(int)engineConfiguration->engineType,
@@ -1072,9 +1101,9 @@ void onConfigurationChangeTriggerCallback() {
 		getTriggerCentral()->noiseFilter.resetAccumSignalData();
 	#endif
 	}
-#if EFI_DEFAILED_LOGGING
+#if EFI_DETAILED_LOGGING
 	efiPrintf("isTriggerConfigChanged=%d", triggerConfigChanged);
-#endif /* EFI_DEFAILED_LOGGING */
+#endif /* EFI_DETAILED_LOGGING */
 
 	// we do not want to miss two updates in a row
 	getTriggerCentral()->triggerConfigChangedOnLastConfigurationChange = getTriggerCentral()->triggerConfigChangedOnLastConfigurationChange || changed;

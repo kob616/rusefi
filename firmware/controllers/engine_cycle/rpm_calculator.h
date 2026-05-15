@@ -14,9 +14,7 @@
 #include "rpm_calculator_api.h"
 #include "trigger_decoder.h"
 
-// we use this value in case of noise on trigger input lines
-#define NOISY_RPM -1
-#define UNREALISTIC_RPM 30000
+#define MAX_ALLOWED_RPM 30000
 
 typedef enum {
 	/**
@@ -88,6 +86,9 @@ public:
 	 * Open question if we have any cases where this opimization is needed.
 	 */
 	float getCachedRpm() const;
+
+	float getMinCrankingRpm() const;
+	
 	/**
 	 * This method is invoked once per engine cycle right after we calculate new RPM value
 	 */
@@ -142,9 +143,9 @@ private:
 	 float cachedRpmValue = 0;
 
 	/**
-	 * Should be called once we've realized engine is not spinning any more.
+	 * The slowest RPM encountered during cranking, used for interpolating ignition advance
 	 */
-	void setStopped();
+	float minCrankingRpm = 0;
 
 	/**
 	 * This counter is incremented with each revolution of one of the shafts. Could be
@@ -166,8 +167,6 @@ private:
 
 	Timer engineStartTimer;
 };
-
-#define isValidRpm(rpm) ((rpm) > 0 && (rpm) < UNREALISTIC_RPM)
 
 void rpmShaftPositionCallback(trigger_event_e ckpSignalType, uint32_t trgEventIndex, efitick_t edgeTimestamp);
 
